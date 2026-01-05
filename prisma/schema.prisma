@@ -1,0 +1,58 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String
+  createdAt DateTime @default(now())
+
+  onboarding Onboarding?
+}
+
+model Onboarding {
+  id String @id @default(uuid())
+
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id])
+
+  // 1/10 — Objetivos
+  goals String // JSON string (array)
+
+  // 2/10 — Dificuldades
+  blockers String // JSON string (array)
+
+  // 3/10 — Já tentou antes
+  experience String // "yes_failed" | "never"
+
+  // 4/10 — Nível de atividade
+  activityLevel String // sedentary | regular | heavy
+
+  // 5/10 — Gênero
+  gender String // male | female | other
+
+  // 6/10 — Idade
+  age Int
+
+  // 7/10 — Frequência de treino
+  workoutsPerWeek Int
+
+  // 8/10 — Meta principal
+  goalPrimary String? // lose_weight | health | gain_mass
+
+  // 9/10 — Peso desejado
+  targetWeight Int?
+
+  // 10/10 — Perda semanal desejada
+  weeklyLossKg        Int?
+  weeklyLossIntensity String? // slow | recommended | fast
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
