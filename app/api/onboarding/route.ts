@@ -8,6 +8,8 @@ type DecodedToken = {
   userId: string
 }
 
+console.log("🟥 ONBOARDING ROUTE CARREGADA")
+
 function getUserId(req: Request): string | null {
   const auth = req.headers.get("authorization")
   if (!auth) return null
@@ -27,13 +29,16 @@ function getUserId(req: Request): string | null {
 }
 
 export async function POST(req: Request) {
+  console.log("🟥 POST /api/onboarding RECEBIDO")
   const userId = getUserId(req)
+  console.log("🟥 USER ID:", userId)
 
   if (!userId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
   const data = await req.json()
+  console.log("🟥 BODY RECEBIDO:", data)
 
   const onboarding = await prisma.onboarding.upsert({
     where: { userId },

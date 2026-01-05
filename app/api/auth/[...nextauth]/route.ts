@@ -1,12 +1,13 @@
 import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
+import GoogleProvider from "next-auth/providers/google";
 import { prisma } from "@/lib/prisma";
 import bcrypt from "bcryptjs";
 
 export const runtime = "nodejs";
 
 const handler = NextAuth({
-	secret: process.env.AUTH_SECRET,
+	secret: process.env.AUTH_SECRET ?? process.env.NEXTAUTH_SECRET,
 	session: {
 		strategy: "jwt",
 	},
@@ -14,6 +15,10 @@ const handler = NextAuth({
 		signIn: "/login",
 	},
 	providers: [
+		GoogleProvider({
+			clientId: process.env.GOOGLE_CLIENT_ID!,
+			clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+		}),
 		Credentials({
 			name: "Credentials",
 			credentials: {
