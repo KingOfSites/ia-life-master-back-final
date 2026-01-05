@@ -6,6 +6,7 @@ import bcrypt from "bcryptjs";
 export const runtime = "nodejs";
 
 type RegisterPayload = {
+	name?: string;
 	email?: string;
 	password?: string;
 };
@@ -15,11 +16,11 @@ function getJwtSecret() {
 }
 
 export async function POST(req: Request) {
-	const { email, password } = (await req.json()) as RegisterPayload;
+	const { name, email, password } = (await req.json()) as RegisterPayload;
 
-	if (!email || !password) {
+	if (!name || !email || !password) {
 		return NextResponse.json(
-			{ error: "Email e senha obrigatórios" },
+			{ error: "Nome, email e senha obrigatórios" },
 			{ status: 400 },
 		);
 	}
@@ -47,6 +48,7 @@ export async function POST(req: Request) {
 
 	const user = await prisma.user.create({
 		data: {
+			name: name.trim(),
 			email,
 			password: hashed,
 		},
@@ -60,6 +62,7 @@ export async function POST(req: Request) {
 		token,
 		user: {
 			id: user.id,
+			name: user.name,
 			email: user.email,
 		},
 	});

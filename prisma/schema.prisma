@@ -9,6 +9,7 @@ datasource db {
 
 model User {
   id         String      @id @default(uuid())
+  name       String      @default("")
   email      String      @unique
   password   String
   createdAt  DateTime    @default(now())
@@ -29,6 +30,8 @@ model Onboarding {
   targetWeight        Int?
   weeklyLossKg        Int?
   weeklyLossIntensity String?
+  heightCm            Int?
+  weightKg            Int?
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
   user                User     @relation(fields: [userId], references: [id])

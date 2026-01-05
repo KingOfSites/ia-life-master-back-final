@@ -54,7 +54,9 @@ export async function POST(req: Request) {
       targetWeight: data.targetWeight ? Number(data.targetWeight) : null,
       weeklyLossKg: data.weeklyLossKg ? Number(data.weeklyLossKg) : null,
       weeklyLossIntensity: data.weeklyLossIntensity ?? null,
-    },
+      heightCm: data.heightCm ? Number(data.heightCm) : null,
+      weightKg: data.weightKg ? Number(data.weightKg) : null,
+    } as any,
     create: {
       userId,
       goals: JSON.stringify(data.goals),
@@ -68,7 +70,9 @@ export async function POST(req: Request) {
       targetWeight: data.targetWeight ? Number(data.targetWeight) : null,
       weeklyLossKg: data.weeklyLossKg ? Number(data.weeklyLossKg) : null,
       weeklyLossIntensity: data.weeklyLossIntensity ?? null,
-    },
+      heightCm: data.heightCm ? Number(data.heightCm) : null,
+      weightKg: data.weightKg ? Number(data.weightKg) : null,
+    } as any,
   })
 
   return NextResponse.json(onboarding)
@@ -83,6 +87,12 @@ export async function GET(req: Request) {
 
   const onboarding = await prisma.onboarding.findUnique({
     where: { userId },
+    include: {
+      // cast para evitar erro caso o client ainda não tenha sido regenerado
+      user: {
+        select: { name: true, email: true } as any,
+      },
+    } as any,
   })
 
   return NextResponse.json(onboarding)
