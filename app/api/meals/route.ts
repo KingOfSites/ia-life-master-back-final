@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { NextResponse } from "next/server";
 import jwt from "jsonwebtoken";
+import crypto from "crypto";
 
 export const runtime = "nodejs";
 
@@ -22,6 +23,10 @@ type IncomingFood = {
 type CreateMealBody = {
 	mealType?: string | null;
 	imageUri?: string | null;
+    imageId?: string | null;
+    source?: string | null; // ex.: "image_scan", "manual"
+    forcedCalories?: number | null;
+    totalCalories?: number | null;
 	foods: IncomingFood[];
 };
 
@@ -56,7 +61,8 @@ export async function POST(req: Request) {
 	const userId = getUserIdFromAuth(req);
 	if (!userId) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
 
-	const { mealType, imageUri, foods } = (await req.json()) as CreateMealBody;
+	const { mealType, imageUri, foods, source, forcedCalories, totalCalories, imageId } =
+		(await req.json()) as CreateMealBody;
 
 	if (!foods || !Array.isArray(foods) || foods.length === 0) {
 		return NextResponse.json({ error: "Campo 'foods' é obrigatório" }, { status: 400 });
@@ -77,16 +83,53 @@ export async function POST(req: Request) {
 		confidence: f.confidence ?? null,
 	}));
 
+    const computedTotalCalories = preparedFoods.reduce((sum, f) => {
+        const c = typeof f.calories === "number" ? f.calories : 0;
+        return sum + c;
+    }, 0);
+
+    const forced = forcedCalories != null ? Math.max(0, Math.round(Number(forcedCalories))) : null;
+    const total =
+        totalCalories != null
+            ? Math.max(0, Math.round(Number(totalCalories)))
+            : forced != null
+                ? forced
+                : Math.round(computedTotalCalories);
+
 	const meal = await prisma.meal.create({
 		data: {
 			userId,
 			mealType: mealType || null,
 			imageUri: imageUri || null,
+            imageId: imageId || crypto.randomUUID(),
+            source: source || "manual",
+            forcedCalories: forced,
+            totalCalories: total,
 			foods: { create: preparedFoods },
 		},
 		include: { foods: true },
 	});
 
 	return NextResponse.json(meal, { status: 201 });
+}
+
+export async function DELETE(req: Request) {
+	const userId = getUserIdFromAuth(req);
+	if (!userId) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
+
+	const { searchParams } = new URL(req.url);
+	const id = searchParams.get("id");
+	if (!id) return NextResponse.json({ error: "Informe ?id=mealId" }, { status: 400 });
+
+	// garante que só apaga do próprio usuário
+	const deleted = await prisma.meal.deleteMany({
+		where: { id, userId },
+	});
+
+	if (!deleted.count) {
+		return NextResponse.json({ error: "Refeição não encontrada" }, { status: 404 });
+	}
+
+	return NextResponse.json({ ok: true });
 }
 

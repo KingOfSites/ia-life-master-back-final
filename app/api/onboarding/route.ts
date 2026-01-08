@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import jwt from "jsonwebtoken"
+import { createPlanForDate } from "../plan/helpers"
 
 export const runtime = "nodejs"
 
@@ -22,7 +23,7 @@ function getUserId(req: Request): string | null {
       process.env.JWT_SECRET!
     ) as DecodedToken
 
-    return decoded.userId
+  return decoded.userId
   } catch {
     return null
   }
@@ -74,6 +75,13 @@ export async function POST(req: Request) {
       weightKg: data.weightKg ? Number(data.weightKg) : null,
     } as any,
   })
+
+  // gera plano automático para o dia após salvar onboarding
+  try {
+    await createPlanForDate({ userId, onboarding, date: new Date() })
+  } catch (err) {
+    console.warn("Falha ao gerar plano automático pós-onboarding", err)
+  }
 
   return NextResponse.json(onboarding)
 }
