@@ -8,16 +8,31 @@ datasource db {
 }
 
 model User {
-  id         String      @id @default(uuid())
-  name       String      @default("")
-  email      String      @unique
-  password   String
-  createdAt  DateTime    @default(now())
-  onboarding Onboarding?
-  foodLogs   FoodLog[]
-  meals      Meal[]
-  chatSessions ChatSession[]
-  planDays   PlanDay[]
+  id             String        @id @default(uuid())
+  name           String        @default("")
+  email          String        @unique
+  password       String
+  currentStreak  Int           @default(0)
+  lastStreakDate DateTime?
+  totalMeals     Int           @default(0)
+  totalCalories  Int           @default(0)
+  bestStreak     Int           @default(0)
+  level          Int           @default(1)
+  experience     Int           @default(0)
+  createdAt      DateTime      @default(now())
+  onboarding     Onboarding?
+  foodLogs       FoodLog[]
+  meals          Meal[]
+  chatSessions   ChatSession[]
+  planDays       PlanDay[]
+  subscription   Subscription?
+  referralCode   String?       @unique
+  referredBy     String?
+  referralRewards Int          @default(0)
+  userBadges     UserBadge[]
+  achievements   Achievement[]
+  notifications  Notification[]
+  checkIns       CheckIn[]
 }
 
 model Onboarding {
@@ -49,40 +64,41 @@ model FoodLog {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  user      User     @relation(fields: [userId], references: [id])
+  user User @relation(fields: [userId], references: [id])
 }
 
 model Meal {
-  id        String      @id @default(uuid())
-  userId    String
-  mealType  String?
-  imageUri  String?     @db.Text
-  imageId   String?
-  source    String?     @default("manual")
+  id             String     @id @default(uuid())
+  userId         String
+  mealType       String?
+  imageUri       String?    @db.Text
+  imageId        String?
+  source         String?    @default("manual")
   forcedCalories Int?
   totalCalories  Int?
-  createdAt DateTime    @default(now())
-  updatedAt DateTime    @updatedAt
-  foods     MealFood[]
+  isFavorite     Boolean    @default(false)
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+  foods          MealFood[]
 
-  user      User        @relation(fields: [userId], references: [id])
+  user User @relation(fields: [userId], references: [id])
 }
 
 model MealFood {
-  id           String   @id @default(uuid())
-  mealId       String
-  foodName     String
-  servingSize  String?
-  calories     Float?
+  id            String  @id @default(uuid())
+  mealId        String
+  foodName      String
+  servingSize   String?
+  calories      Float?
   carbohydrates Float?
-  protein      Float?
-  fat          Float?
-  fiber        Float?
-  sugar        Float?
-  sodium       Float?
-  potassium    Float?
-  vitaminC     Float?
-  confidence   Float?
+  protein       Float?
+  fat           Float?
+  fiber         Float?
+  sugar         Float?
+  sodium        Float?
+  potassium     Float?
+  vitaminC      Float?
+  confidence    Float?
 
   meal Meal @relation(fields: [mealId], references: [id], onDelete: Cascade)
 }
@@ -99,33 +115,76 @@ model ChatSession {
 }
 
 model ChatMessage {
-  id         String   @id @default(uuid())
-  sessionId  String
-  role       String
-  content    String   @db.Text
-  createdAt  DateTime @default(now())
+  id        String   @id @default(uuid())
+  sessionId String
+  role      String
+  content   String   @db.Text
+  createdAt DateTime @default(now())
 
   session ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 }
 
 model PlanDay {
-  id            String         @id @default(uuid())
+  id            String        @id @default(uuid())
   userId        String
   date          DateTime
   goal          String?
   totalCalories Int?
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
   meals         PlanMeal[]
   workouts      PlanWorkout[]
+  activities    PlanActivity[]
 
   user User @relation(fields: [userId], references: [id])
 
   @@unique([userId, date])
 }
 
+model Notification {
+  id            String   @id @default(uuid())
+  userId        String
+  type          String   // "water", "meal", "workout", "reminder"
+  title         String
+  body          String   @db.Text
+  scheduledFor  DateTime
+  sent          Boolean  @default(false)
+  sentAt        DateTime?
+  cancelled     Boolean  @default(false)
+  cancelledAt  DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  relatedId     String?  // ID da refeição ou treino relacionado
+  relatedType   String?  // "meal" | "workout" | null
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([scheduledFor])
+  @@index([sent, cancelled])
+}
+
+model CheckIn {
+  id            String   @id @default(uuid())
+  userId        String
+  type          String   // "meal" | "workout" | "water"
+  relatedId     String?  // ID da refeição, treino ou null para água
+  completed     Boolean  @default(false)
+  completedAt   DateTime?
+  skipped       Boolean  @default(false)
+  skipReason    String?  @db.Text
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([type])
+  @@index([createdAt])
+}
+
 model PlanMeal {
-  id          String   @id @default(uuid())
+  id          String  @id @default(uuid())
   planDayId   String
   title       String
   description String?
@@ -135,36 +194,164 @@ model PlanMeal {
   protein     Int?
   carbs       Int?
   fat         Int?
-  status      String   @default("pending")
-  source      String   @default("plan")
+  status      String  @default("pending")
+  source      String  @default("plan")
   sourceMeta  Json?
 
   planDay PlanDay @relation(fields: [planDayId], references: [id], onDelete: Cascade)
 }
 
 model PlanWorkout {
-  id        String   @id @default(uuid())
+  id        String  @id @default(uuid())
   planDayId String
   title     String
-  focus     String?
+  focus     String? @db.Text
   startTime String
   endTime   String
   intensity String?
-  status    String   @default("pending")
+  status    String  @default("pending")
+
+  planDay PlanDay @relation(fields: [planDayId], references: [id], onDelete: Cascade)
+}
+
+model PlanActivity {
+  id        String  @id @default(uuid())
+  planDayId String
+  title     String
+  category  String  // "Corrida" | "Trabalho" | "Estudo" | etc
+  startTime String
+  endTime   String
+  notes     String? @db.Text
+  status    String  @default("pending")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   planDay PlanDay @relation(fields: [planDayId], references: [id], onDelete: Cascade)
 }
 
 model NutritionFeedback {
-  id             String   @id @default(uuid())
-  userId         String
-  rating         Int
-  comment        String?  @db.Text
-  foodsAnalyzed  Json
-  totalCalories  Int
-  createdAt      DateTime @default(now())
+  id            String   @id @default(uuid())
+  userId        String
+  rating        Int
+  comment       String?  @db.Text
+  foodsAnalyzed Json
+  totalCalories Int
+  createdAt     DateTime @default(now())
 
   @@index([userId])
   @@index([rating])
+  @@index([createdAt])
+}
+
+model Subscription {
+  id                String   @id @default(uuid())
+  userId            String   @unique
+  planType          String   // "basic" | "complete"
+  billingPeriod     String   // "monthly" | "yearly"
+  status            String   @default("pending") // "pending" | "active" | "cancelled" | "expired"
+  mpPreferenceId    String?  // ID da preferência do Mercado Pago
+  mpSubscriptionId  String?  // ID da assinatura recorrente no MP
+  currentPeriodEnd  DateTime?
+  cancelAtPeriodEnd Boolean  @default(false)
+  referralCode      String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  payments          Payment[]
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([status])
+  @@index([mpSubscriptionId])
+}
+
+model Payment {
+  id              String   @id @default(uuid())
+  subscriptionId  String
+  mpPaymentId     String   @unique
+  mpPreferenceId  String?
+  amount          Float
+  currency        String   @default("BRL")
+  status          String   // "pending" | "approved" | "rejected" | "cancelled" | "refunded"
+  paymentMethod   String?
+  paymentType     String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  subscription Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+
+  @@index([subscriptionId])
+  @@index([mpPaymentId])
+  @@index([status])
+}
+
+model Referral {
+  id            String   @id @default(uuid())
+  referrerId    String   // Usuário que indicou
+  referredId    String   // Usuário indicado
+  referralCode  String
+  rewardApplied Boolean  @default(false)
+  rewardAmount  Float    @default(0)
+  createdAt     DateTime @default(now())
+
+  @@unique([referrerId, referredId])
+  @@index([referrerId])
+  @@index([referredId])
+  @@index([referralCode])
+}
+
+model Badge {
+  id          String     @id @default(uuid())
+  name        String
+  description String     @db.Text
+  icon        String     // Nome do ícone (ex: "flame", "trophy", etc)
+  color       String     // Cor do badge (ex: "#F59E0B")
+  category    String     // "streak", "meals", "calories", "consistency", "milestone"
+  requirement Int        // Valor necessário para desbloquear
+  rarity      String     @default("common") // "common", "rare", "epic", "legendary"
+  level       Int        @default(1) // Nível da conquista (1, 2, 3, etc)
+  maxLevel    Int        @default(1) // Nível máximo desta conquista
+  createdAt   DateTime   @default(now())
+  userBadges  UserBadge[]
+
+  @@unique([name])
+  @@index([category])
+  @@index([category, level])
+}
+
+model UserBadge {
+  id          String   @id @default(uuid())
+  userId      String
+  badgeId     String
+  progress    Int      @default(0) // Progresso atual em direção ao requisito
+  currentLevel Int     @default(0) // Nível atual desbloqueado (0 = não desbloqueado)
+  unlocked    Boolean  @default(false)
+  unlockedAt  DateTime?
+  createdAt   DateTime @default(now())
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  badge Badge @relation(fields: [badgeId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, badgeId])
+  @@index([userId])
+  @@index([badgeId])
+  @@index([unlocked])
+}
+
+model Achievement {
+  id          String   @id @default(uuid())
+  userId      String
+  type        String   // "streak", "meals", "calories", "first_meal", "week_complete", etc
+  title       String
+  description String   @db.Text
+  icon        String
+  value       Int      // Valor alcançado (ex: 7 dias de streak)
+  points      Int      @default(0) // Pontos de experiência ganhos
+  createdAt   DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([type])
   @@index([createdAt])
 }

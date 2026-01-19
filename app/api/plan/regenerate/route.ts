@@ -72,6 +72,19 @@ export async function POST(req: Request) {
   const userId = getUserIdFromAuth(req);
   if (!userId) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
 
+  // Verificar entitlements para regeneração de planos (apenas plano completo)
+  const { checkEntitlement } = await import("@/lib/entitlements");
+  const hasAccess = await checkEntitlement(userId, "personalized_plans");
+  if (!hasAccess) {
+    return NextResponse.json(
+      { 
+        error: "Acesso negado",
+        message: "Regeneração de planos personalizados está disponível apenas no plano Completo. Faça upgrade para acessar esta funcionalidade."
+      },
+      { status: 403 }
+    );
+  }
+
   const body = await req.json().catch(() => ({} as any));
   const dateParam = body?.date ? String(body.date) : null;
   const range = body?.range === "week" ? "week" : null;

@@ -98,7 +98,7 @@ export async function GET(req: Request) {
     include: {
       // cast para evitar erro caso o client ainda não tenha sido regenerado
       user: {
-        select: { name: true, email: true } as any,
+        select: { name: true, email: true, currentStreak: true } as any,
       },
     } as any,
   })

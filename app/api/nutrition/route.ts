@@ -1,9 +1,14 @@
 import { openai } from "@/lib/openai";
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
 import { nutritionPrompt } from "./prompt";
 import path from "path";
 import { mkdir, writeFile, access } from "fs/promises";
+import { PrismaClient } from "@prisma/client";
+import jwt from "jsonwebtoken";
+
+const prisma = new PrismaClient();
+const JWT_SECRET = process.env.JWT_SECRET || "supersecret";
 
 export const runtime = "nodejs";
 
@@ -263,8 +268,130 @@ const adjustWeightsToTargetCalories = (options: {
    ROTA
 ======================= */
 
-export async function POST(req: Request) {
+// Função para buscar e analisar feedbacks do usuário
+async function getFeedbackInstructions(userId: string | null): Promise<string> {
+  if (!userId || userId === "anonymous") {
+    return "";
+  }
+
   try {
+    // Buscar feedbacks dos últimos 30 dias
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const recentFeedbacks = await prisma.nutritionFeedback.findMany({
+      where: {
+        userId: userId,
+        createdAt: { gte: thirtyDaysAgo },
+      },
+      orderBy: { createdAt: "desc" },
+      take: 20, // Últimos 20 feedbacks
+    });
+
+    if (recentFeedbacks.length === 0) {
+      return "";
+    }
+
+    // Analisar tendências
+    const avgRating =
+      recentFeedbacks.reduce((sum, f) => sum + f.rating, 0) / recentFeedbacks.length;
+    const lowRatings = recentFeedbacks.filter((f) => f.rating <= 2);
+    const highRatings = recentFeedbacks.filter((f) => f.rating >= 4);
+    const comments = recentFeedbacks
+      .map((f) => f.comment)
+      .filter((c): c is string => Boolean(c));
+
+    // Se a média for baixa ou houver muitos feedbacks negativos, ajustar
+    if (avgRating < 3 || lowRatings.length >= 3) {
+      const commonIssues: string[] = [];
+
+      // Analisar comentários para identificar padrões
+      const lowerComments = comments.map((c) => c.toLowerCase());
+      
+      if (lowerComments.some((c) => c.includes("alto") || c.includes("muito") || c.includes("demais"))) {
+        commonIssues.push("valores altos");
+      }
+      if (lowerComments.some((c) => c.includes("baixo") || c.includes("pouco") || c.includes("menos"))) {
+        commonIssues.push("valores baixos");
+      }
+      if (lowerComments.some((c) => c.includes("faltou") || c.includes("incompleto") || c.includes("detalhar"))) {
+        commonIssues.push("análise incompleta");
+      }
+      if (lowerComments.some((c) => c.includes("erro") || c.includes("errado") || c.includes("incorreto"))) {
+        commonIssues.push("identificação incorreta");
+      }
+
+      let instructions = `\n\nIMPORTANTE - Ajustes baseados no feedback do usuário:\n`;
+      instructions += `O usuário tem dado notas baixas (média ${avgRating.toFixed(1)}/5) nas análises recentes.\n`;
+
+      if (commonIssues.includes("valores altos")) {
+        instructions += `- O usuário reclama que os valores vêm ALTOS. Seja mais CONSERVADOR ao estimar porções.\n`;
+        instructions += `- Se houver dúvida entre duas porções, escolha a MENOR.\n`;
+        instructions += `- Exemplo: se pode ser 150g ou 200g, escolha 150g.\n`;
+      }
+
+      if (commonIssues.includes("valores baixos")) {
+        instructions += `- O usuário reclama que os valores vêm BAIXOS. Seja mais REALISTA ao estimar porções.\n`;
+      }
+
+      if (commonIssues.includes("análise incompleta")) {
+        instructions += `- O usuário quer mais DETALHES. Identifique TODOS os alimentos, incluindo:\n`;
+        instructions += `  * Molhos e temperos separadamente\n`;
+        instructions += `  * Acompanhamentos pequenos\n`;
+        instructions += `  * Itens em potes/recipientes\n`;
+        instructions += `- Não agrupe alimentos diferentes em um único item.\n`;
+      }
+
+      if (commonIssues.includes("identificação incorreta")) {
+        instructions += `- O usuário relata ERROS na identificação. Seja mais PRECISO:\n`;
+        instructions += `  * Confirme bem antes de identificar alimentos similares\n`;
+        instructions += `  * Use confidence baixo se não tiver certeza\n`;
+      }
+
+      // Adicionar comentários específicos recentes
+      const recentLowRatingComments = lowRatings
+        .slice(0, 3)
+        .map((f) => f.comment)
+        .filter((c): c is string => Boolean(c));
+      
+      if (recentLowRatingComments.length > 0) {
+        instructions += `\nComentários recentes do usuário:\n`;
+        recentLowRatingComments.forEach((comment, idx) => {
+          instructions += `${idx + 1}. "${comment}"\n`;
+        });
+        instructions += `Considere esses comentários ao fazer esta análise.\n`;
+      }
+
+      return instructions;
+    }
+
+    // Se houver muitos feedbacks positivos, manter o padrão
+    if (highRatings.length >= 5 && avgRating >= 4) {
+      return `\n\nNota: O usuário tem dado feedbacks positivos recentemente. Continue com a mesma abordagem detalhada e precisa.\n`;
+    }
+
+    return "";
+  } catch (error) {
+    console.error("[NUTRITION] Erro ao buscar feedbacks:", error);
+    return "";
+  }
+}
+
+export async function POST(req: NextRequest) {
+  try {
+    // Extrair userId do token
+    const auth = req.headers.get("authorization");
+    let userId: string | null = null;
+
+    if (auth?.startsWith("Bearer ")) {
+      const token = auth.slice(7);
+      try {
+        const decoded = jwt.verify(token, JWT_SECRET) as { userId: string };
+        userId = decoded.userId;
+      } catch (err) {
+        // Token inválido, continuar sem userId
+        console.log("[NUTRITION] Token inválido ou ausente, continuando sem feedback personalizado");
+      }
+    }
+
     const formData = await req.formData();
     const file = formData.get("image");
     const forcedCaloriesRaw = formData.get("forced_calories") ?? formData.get("forcedCalories");
@@ -306,6 +433,8 @@ export async function POST(req: Request) {
     }
     const imageUrl = `${origin}/uploads/nutrition/${fileName}`;
 
+    // Cache não considera userId/feedback para permitir personalização
+    // Mas ainda usa cache para mesma imagem + parâmetros
     const cacheKey = crypto
       .createHash("sha256")
       .update(buf)
@@ -315,7 +444,9 @@ export async function POST(req: Request) {
       .update(String(totalWeightG ?? ""))
       .digest("hex");
 
-    const cached = getCache(cacheKey);
+    // Só usar cache se não houver feedback personalizado (para permitir ajustes)
+    const hasPersonalizedFeedback = userId && userId !== "anonymous";
+    const cached = !hasPersonalizedFeedback ? getCache(cacheKey) : null;
     if (cached) {
       // garante que a URL da imagem exista no payload
       return NextResponse.json({ ...cached, imageId, imageUrl });
@@ -323,16 +454,12 @@ export async function POST(req: Request) {
 
     const wantsWeightsFlow = Boolean((forcedCalories && forcedCalories > 0) || (totalWeightG && totalWeightG > 0));
 
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      temperature: 0.0,
-      max_tokens: wantsWeightsFlow ? 900 : 650,
-      response_format: { type: "json_object" },
-      messages: [
-        {
-          role: "system",
-          content: wantsWeightsFlow
-            ? `
+    // Buscar instruções baseadas em feedback
+    const feedbackInstructions = await getFeedbackInstructions(userId);
+    
+    // Construir prompt base com feedback
+    const basePrompt = wantsWeightsFlow
+      ? `
 Você é uma IA de nutrição.
 Responda EXCLUSIVAMENTE em JSON VÁLIDO.
 NÃO inclua explicações, comentários ou texto fora do JSON.
@@ -361,7 +488,19 @@ Formato obrigatório:
   ]
 }
             `.trim()
-            : nutritionPrompt.trim(),
+      : nutritionPrompt.trim();
+
+    const systemPrompt = basePrompt + feedbackInstructions;
+
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      temperature: 0.0,
+      max_tokens: wantsWeightsFlow ? 900 : 650,
+      response_format: { type: "json_object" },
+      messages: [
+        {
+          role: "system",
+          content: systemPrompt,
         },
         {
           role: "user",
@@ -370,13 +509,14 @@ Formato obrigatório:
               type: "text",
               text: wantsWeightsFlow
                 ? `
-Identifique TODOS os alimentos visíveis na imagem.
+Identifique TODOS os alimentos e bebidas visíveis na imagem.
 
 Inclua OBRIGATORIAMENTE:
 - acompanhamentos
 - molhos
 - itens em potes pequenos
 - alimentos separados no prato, mesmo em pequenas quantidades
+- BEBIDAS (café, chá, sucos, refrigerantes, água, etc.)
 - não confunda feijão com molho
 
 Cada item deve ser retornado como um alimento separado no array "foods".
