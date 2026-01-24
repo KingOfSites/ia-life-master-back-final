@@ -28,6 +28,7 @@ export async function GET(req: Request) {
       id: true,
       name: true,
       email: true,
+      profileImage: true,
       createdAt: true,
     },
   });
@@ -42,17 +43,28 @@ export async function GET(req: Request) {
       weightKg: true,
       goalPrimary: true,
       age: true,
+      birthDate: true,
     },
   });
+
+  // Retornar data de nascimento completa se disponível, senão calcular a partir da idade
+  let birthDateValue: string | null = null;
+  if (onboarding?.birthDate) {
+    birthDateValue = onboarding.birthDate.toISOString().split("T")[0];
+  } else if (onboarding?.age) {
+    // Fallback: calcular a partir da idade (1º de janeiro do ano)
+    birthDateValue = new Date(new Date().getFullYear() - (onboarding.age || 0), 0, 1).toISOString().split("T")[0];
+  }
 
   return NextResponse.json({
     ...user,
     phone: "", // Phone não está no schema do User
-    birthDate: onboarding?.age ? new Date(new Date().getFullYear() - (onboarding.age || 0), 0, 1).toISOString().split("T")[0] : null,
+    birthDate: birthDateValue,
     height: onboarding?.heightCm ? `${onboarding.heightCm} cm` : null,
     weight: onboarding?.weightKg ? `${onboarding.weightKg} kg` : null,
     goal: onboarding?.goalPrimary || null,
     joinDate: user.createdAt.toISOString().split("T")[0],
+    profileImage: user.profileImage || null,
   });
 }
 
@@ -61,12 +73,13 @@ export async function PATCH(req: Request) {
   if (!userId) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
 
   const body = await req.json().catch(() => ({} as any));
-  const { name, email, phone, birthDate, height, weight, goal } = body;
+  const { name, email, phone, birthDate, height, weight, goal, profileImage } = body;
 
   // Atualizar dados do usuário
   const userUpdate: any = {};
   if (name !== undefined) userUpdate.name = String(name).trim();
   if (email !== undefined) userUpdate.email = String(email).trim();
+  if (profileImage !== undefined) userUpdate.profileImage = profileImage ? String(profileImage).trim() : null;
   // phone não está no schema do User, pode ser adicionado depois
 
   if (Object.keys(userUpdate).length > 0) {
@@ -79,8 +92,11 @@ export async function PATCH(req: Request) {
   // Atualizar dados do onboarding
   const onboardingUpdate: any = {};
   if (birthDate) {
-    // Converter data de nascimento para idade
+    // Salvar a data de nascimento completa
     const birth = new Date(birthDate);
+    onboardingUpdate.birthDate = birth;
+    
+    // Também calcular e atualizar a idade para compatibilidade
     const today = new Date();
     const age = today.getFullYear() - birth.getFullYear();
     const monthDiff = today.getMonth() - birth.getMonth();

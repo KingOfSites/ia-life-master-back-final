@@ -11,7 +11,10 @@ model User {
   id             String        @id @default(uuid())
   name           String        @default("")
   email          String        @unique
-  password       String
+  password       String?       // Opcional para OAuth
+  provider       String?       // "google", "apple", ou null para email/password
+  providerId     String?       // ID do provedor OAuth
+  profileImage   String?       @db.Text
   currentStreak  Int           @default(0)
   lastStreakDate DateTime?
   totalMeals     Int           @default(0)
@@ -36,14 +39,15 @@ model User {
 }
 
 model Onboarding {
-  id                  String   @id @default(uuid())
-  userId              String   @unique
+  id                  String    @id @default(uuid())
+  userId              String    @unique
   goals               String
   blockers            String
   experience          String
   activityLevel       String
   gender              String
   age                 Int
+  birthDate           DateTime? @db.Date
   workoutsPerWeek     Int
   goalPrimary         String?
   targetWeight        Int?
@@ -51,9 +55,13 @@ model Onboarding {
   weeklyLossIntensity String?
   heightCm            Int?
   weightKg            Int?
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
-  user                User     @relation(fields: [userId], references: [id])
+  heardFrom           String?
+  dietType            String?
+  whatWouldLikeToAchieve String?
+  referralCode        String?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  user                User      @relation(fields: [userId], references: [id])
 }
 
 model FoodLog {

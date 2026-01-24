@@ -41,40 +41,40 @@ export async function POST(req: Request) {
   const data = await req.json()
   console.log("🟥 BODY RECEBIDO:", data)
 
+  // Construir objeto de update dinamicamente para evitar problemas com Prisma Client desatualizado
+  const updateData: any = {
+    goals: JSON.stringify(data.goals),
+    blockers: JSON.stringify(data.blockers),
+    experience: data.experience,
+    activityLevel: data.activityLevel,
+    gender: data.gender,
+    age: Number(data.age),
+    birthDate: data.birthDate ? new Date(data.birthDate) : null,
+    workoutsPerWeek: Number(data.workoutsPerWeek),
+    goalPrimary: data.goalPrimary ?? null,
+    targetWeight: data.targetWeight ? Number(data.targetWeight) : null,
+    weeklyLossKg: data.weeklyLossKg ? Number(data.weeklyLossKg) : null,
+    weeklyLossIntensity: data.weeklyLossIntensity ?? null,
+    heightCm: data.heightCm ? Number(data.heightCm) : null,
+    weightKg: data.weightKg ? Number(data.weightKg) : null,
+  }
+
+  // Adicionar campos opcionais apenas se existirem no schema (evita erro se Prisma Client não foi regenerado)
+  if (data.heardFrom !== undefined) updateData.heardFrom = data.heardFrom ?? null
+  if (data.dietType !== undefined) updateData.dietType = data.dietType ?? null
+  if (data.whatWouldLikeToAchieve !== undefined) updateData.whatWouldLikeToAchieve = data.whatWouldLikeToAchieve ?? null
+  if (data.referralCode !== undefined) updateData.referralCode = data.referralCode ?? null
+
+  const createData: any = {
+    userId,
+    ...updateData,
+  }
+
   const onboarding = await prisma.onboarding.upsert({
     where: { userId },
-    update: {
-      goals: JSON.stringify(data.goals),
-      blockers: JSON.stringify(data.blockers),
-      experience: data.experience,
-      activityLevel: data.activityLevel,
-      gender: data.gender,
-      age: Number(data.age),
-      workoutsPerWeek: Number(data.workoutsPerWeek),
-      goalPrimary: data.goalPrimary ?? null,
-      targetWeight: data.targetWeight ? Number(data.targetWeight) : null,
-      weeklyLossKg: data.weeklyLossKg ? Number(data.weeklyLossKg) : null,
-      weeklyLossIntensity: data.weeklyLossIntensity ?? null,
-      heightCm: data.heightCm ? Number(data.heightCm) : null,
-      weightKg: data.weightKg ? Number(data.weightKg) : null,
-    } as any,
-    create: {
-      userId,
-      goals: JSON.stringify(data.goals),
-      blockers: JSON.stringify(data.blockers),
-      experience: data.experience,
-      activityLevel: data.activityLevel,
-      gender: data.gender,
-      age: Number(data.age),
-      workoutsPerWeek: Number(data.workoutsPerWeek),
-      goalPrimary: data.goalPrimary ?? null,
-      targetWeight: data.targetWeight ? Number(data.targetWeight) : null,
-      weeklyLossKg: data.weeklyLossKg ? Number(data.weeklyLossKg) : null,
-      weeklyLossIntensity: data.weeklyLossIntensity ?? null,
-      heightCm: data.heightCm ? Number(data.heightCm) : null,
-      weightKg: data.weightKg ? Number(data.weightKg) : null,
-    } as any,
-  })
+    update: updateData,
+    create: createData,
+  } as any)
 
   // gera plano automático para o dia após salvar onboarding
   try {

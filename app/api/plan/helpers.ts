@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { openai } from "@/lib/openai";
 
 type OnboardingData = {
   goalPrimary?: string | null;
@@ -85,7 +86,7 @@ const normalizeActivity = (raw?: string | null) => {
   return "regular";
 };
 
-const calcTargets = (onboarding: OnboardingData | null | undefined) => {
+export const calcTargets = (onboarding: OnboardingData | null | undefined) => {
   const weight =
     onboarding?.weightKg && onboarding.weightKg > 0
       ? onboarding.weightKg
@@ -224,6 +225,133 @@ const calcTargets = (onboarding: OnboardingData | null | undefined) => {
 
   return { calories, protein, carbs, fat };
 };
+
+/**
+ * Calcula targets usando IA da OpenAI
+ * Retorna null se houver erro (para usar fallback matemático)
+ */
+export async function calcTargetsWithAI(
+  onboarding: OnboardingData | null | undefined
+): Promise<{ calories: number; protein: number; carbs: number; fat: number } | null> {
+  try {
+    if (!onboarding) {
+      return null;
+    }
+
+    const weight = onboarding?.weightKg && onboarding.weightKg > 0 ? onboarding.weightKg : null;
+    const height = onboarding && typeof (onboarding as any).heightCm === "number" ? (onboarding as any).heightCm : null;
+    const age = onboarding && typeof (onboarding as any).age === "number" ? (onboarding as any).age : null;
+    const gender = (onboarding as any)?.gender?.toLowerCase?.() === "female" ? "female" : "male";
+    const goal = normalizeGoal(onboarding?.goalPrimary || (onboarding as any)?.goals);
+    const activityLevel = normalizeActivity((onboarding as any)?.activityLevel);
+    const targetWeight = onboarding && typeof (onboarding as any).targetWeight === "number" && (onboarding as any).targetWeight > 0 ? (onboarding as any).targetWeight : null;
+    const weeklyLoss = onboarding && typeof (onboarding as any).weeklyLossKg === "number" && (onboarding as any).weeklyLossKg > 0 ? (onboarding as any).weeklyLossKg : null;
+    const weeklyLossIntensity = (onboarding as any)?.weeklyLossIntensity || "recommended";
+
+    const systemPrompt = `Você é um nutricionista especializado em calcular necessidades calóricas e macronutrientes.
+
+Sua tarefa é calcular as necessidades diárias de calorias e macronutrientes (proteína, carboidratos, gorduras) baseado nos dados do usuário.
+
+REGRAS OBRIGATÓRIAS:
+1. Use a fórmula de Mifflin-St Jeor para calcular BMR (Taxa Metabólica Basal):
+   - Homem: BMR = 10 × peso(kg) + 6.25 × altura(cm) - 5 × idade + 5
+   - Mulher: BMR = 10 × peso(kg) + 6.25 × altura(cm) - 5 × idade - 161
+
+2. Calcule TDEE (Gasto Energético Total Diário):
+   - Sedentário: TDEE = BMR × 1.2
+   - Regular: TDEE = BMR × 1.45
+   - Intenso: TDEE = BMR × 1.6
+
+3. Ajuste por objetivo:
+   - PERDER PESO (loss): Aplique déficit baseado na intensidade:
+     * Lento (slow): 15% de déficit
+     * Recomendado (recommended): 25% de déficit
+     * Rápido (fast): 30% de déficit
+     * Se houver weeklyLossKg (kg/semana), calcule: déficit = weeklyLossKg × 1100 kcal/dia
+   - GANHAR PESO (gain): Adicione 250 kcal + ajuste baseado na diferença de peso
+   - MANTER (maintain): Use TDEE sem ajustes
+
+4. LIMITES DE SEGURANÇA:
+   - Calorias mínimas: 1200 kcal
+   - Calorias máximas: 3500 kcal
+
+5. DISTRIBUIÇÃO DE MACROS:
+   - Proteína: 
+     * Ganhar peso: 1.8g por kg de peso corporal
+     * Perder/manter: 2.0g por kg de peso corporal
+     * Ou 30% das calorias (dividir por 4 para gramas)
+   - Carboidratos: 40% das calorias (dividir por 4 para gramas)
+   - Gorduras: 30% das calorias (dividir por 9 para gramas)
+
+6. Retorne APENAS um JSON válido no formato:
+{
+  "calories": número,
+  "protein": número (em gramas),
+  "carbs": número (em gramas),
+  "fat": número (em gramas),
+  "explanation": "breve explicação do cálculo"
+}
+
+IMPORTANTE: Todos os valores devem ser números inteiros (arredondados).`;
+
+    const userPrompt = `Calcule as necessidades nutricionais para:
+- Peso: ${weight || "não informado"} kg
+- Altura: ${height || "não informado"} cm
+- Idade: ${age || "não informado"} anos
+- Gênero: ${gender === "female" ? "feminino" : "masculino"}
+- Objetivo: ${goal === "loss" ? "perder peso" : goal === "gain" ? "ganhar peso" : "manter peso"}
+- Nível de atividade: ${activityLevel}
+- Peso desejado: ${targetWeight || "não informado"} kg
+- Perda semanal desejada: ${weeklyLoss || "não informado"} kg/semana
+- Intensidade de perda: ${weeklyLossIntensity}
+
+Calcule e retorne o JSON com calories, protein, carbs, fat e explanation.`;
+
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      temperature: 0.0, // Temperatura zero para máxima consistência
+      max_tokens: 500,
+      response_format: { type: "json_object" },
+      messages: [
+        {
+          role: "system",
+          content: systemPrompt,
+        },
+        {
+          role: "user",
+          content: userPrompt,
+        },
+      ],
+    });
+
+    const reply = completion.choices[0].message?.content ?? "";
+    if (!reply) {
+      console.error("[AI-TARGETS] Resposta vazia da OpenAI");
+      return null;
+    }
+
+    let parsed: any;
+    try {
+      parsed = JSON.parse(reply);
+    } catch (error) {
+      console.error("[AI-TARGETS] Erro ao parsear JSON da OpenAI:", error);
+      return null;
+    }
+
+    // Validar e normalizar valores
+    const calories = Math.max(1200, Math.min(3500, Math.round(parsed.calories || 2000)));
+    const protein = Math.round(parsed.protein || 150);
+    const carbs = Math.round(parsed.carbs || 200);
+    const fat = Math.round(parsed.fat || 65);
+
+    console.log("[AI-TARGETS] Cálculo via IA:", { calories, protein, carbs, fat, explanation: parsed.explanation });
+
+    return { calories, protein, carbs, fat };
+  } catch (error) {
+    console.error("[AI-TARGETS] Erro ao calcular com IA:", error);
+    return null; // Retorna null para usar fallback matemático
+  }
+}
 
 
 const buildMeals = (
@@ -1019,7 +1147,16 @@ export async function generatePlanDraftForDate(options: {
     }));
 
   const goalLabel = pickGoalLabel(onboarding as any);
-  const { calories, protein, carbs, fat } = calcTargets(onboarding as any);
+  
+  // Tentar calcular com IA primeiro, usar fallback matemático se falhar
+  let targets = await calcTargetsWithAI(onboarding as any);
+  if (!targets) {
+    console.log("[PLAN] Usando cálculo matemático (fallback)");
+    targets = calcTargets(onboarding as any);
+  } else {
+    console.log("[PLAN] Usando cálculo via IA");
+  }
+  const { calories, protein, carbs, fat } = targets;
 
   // seed de variação diária (0-6) baseado no dia da semana
   // Adicionar offset para forçar variação quando substituir refeição

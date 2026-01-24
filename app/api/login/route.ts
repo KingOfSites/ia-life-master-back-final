@@ -26,6 +26,14 @@ export async function POST(req: Request) {
     )
   }
 
+  // Se o usuário não tem senha, significa que é OAuth
+  if (!user.password) {
+    return NextResponse.json(
+      { error: "Este usuário foi cadastrado com login social. Use Google ou Apple para fazer login." },
+      { status: 401 }
+    )
+  }
+
   const passwordMatch = await bcrypt.compare(password, user.password)
 
   if (!passwordMatch) {
