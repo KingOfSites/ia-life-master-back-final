@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { NextResponse } from "next/server";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
+import { Prisma } from "@prisma/client";
 
 export const runtime = "nodejs";
 
@@ -270,7 +271,7 @@ export async function PATCH(req: Request) {
 				? forced
 				: Math.round(computedTotalCalories);
 
-	const meal = await prisma.$transaction(async (tx) => {
+	const meal = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
 		await tx.mealFood.deleteMany({ where: { mealId: id } });
 		return await tx.meal.update({
 			where: { id },

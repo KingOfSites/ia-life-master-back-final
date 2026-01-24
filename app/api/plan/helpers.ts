@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { openai } from "@/lib/openai";
+import { Prisma } from "@prisma/client";
 
 type OnboardingData = {
   goalPrimary?: string | null;
@@ -1282,7 +1283,7 @@ export async function createPlanForDate(options: {
     console.log(`[PLAN] New: ${newMeals.length} meals, ${newWorkouts.length} workouts`);
     console.log(`[PLAN] =====================================================`);
     
-    const plan = await prisma.$transaction(async (tx) => {
+    const plan = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       // IMPORTANTE: Deletar PRIMEIRO, antes de criar novos itens
       // Verificar quantos itens existem ANTES de deletar
       console.log(`[PLAN] ========== INSIDE TRANSACTION ==========`);

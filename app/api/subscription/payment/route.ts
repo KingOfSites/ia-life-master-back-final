@@ -190,6 +190,10 @@ export async function POST(req: NextRequest) {
             setTimeout(async () => {
                 try {
                     // Verificar status atualizado do pagamento
+                    if (!payment.id) {
+                        console.error("[PAYMENT] Payment ID is undefined");
+                        return;
+                    }
                     const updatedPayment = await paymentClient.get({ id: payment.id });
                     
                     // Se ainda estiver pending, tratar como aprovado para cartões de teste
@@ -238,6 +242,10 @@ export async function POST(req: NextRequest) {
         // Isso é especialmente importante para cartões de teste que podem ficar pending inicialmente
         setTimeout(async () => {
             try {
+                if (!payment.id) {
+                    console.error("[PAYMENT] Payment ID is undefined");
+                    return;
+                }
                 const updatedPayment = await paymentClient.get({ id: payment.id });
                 console.log("[PAYMENT] Re-checking payment status:", {
                     paymentId: payment.id,

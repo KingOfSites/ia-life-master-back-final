@@ -109,17 +109,18 @@ export async function POST(req: NextRequest) {
 					);
 				}
 			} else {
-			// Criar novo usuário
-			user = await prisma.user.create({
-				data: {
-					name: name.trim(),
-					email,
-					provider,
-					providerId,
-					profileImage: profileImage || null,
-					password: null, // OAuth não precisa de senha
-				},
-			});
+				// Criar novo usuário
+				user = await prisma.user.create({
+					data: {
+						name: name.trim(),
+						email,
+						provider,
+						providerId,
+						profileImage: profileImage || null,
+						password: null, // OAuth não precisa de senha
+					},
+				});
+			}
 		}
 
 		// Gerar token JWT
@@ -152,36 +153,4 @@ export async function POST(req: NextRequest) {
 	}
 }
 
-
-		}
-
-		// Gerar token JWT
-		const secret = process.env.JWT_SECRET;
-		if (!secret) {
-			return NextResponse.json(
-				{ error: "Servidor sem JWT_SECRET configurado" },
-				{ status: 500 }
-			);
-		}
-
-		const token = jwt.sign({ userId: user.id }, secret, {
-			expiresIn: "7d",
-		});
-
-		return NextResponse.json({
-			token,
-			user: {
-				id: user.id,
-				name: user.name,
-				email: user.email,
-			},
-		});
-	} catch (error: any) {
-		console.error("[OAUTH] Erro:", error);
-		return NextResponse.json(
-			{ error: error.message || "Erro ao autenticar" },
-			{ status: 500 }
-		);
-	}
-}
 

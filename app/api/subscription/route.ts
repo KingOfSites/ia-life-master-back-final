@@ -156,6 +156,7 @@ export async function POST(req: NextRequest) {
         const preferenceData = {
             items: [
                 {
+                    id: `plan-${planType}-${billingPeriod}`,
                     title: `Plano ${planType === "basic" ? "Básico" : "Completo"} - ${billingPeriod === "monthly" ? "Mensal" : "Anual"}`,
                     quantity: 1,
                     unit_price: finalPrice / 100, // Converter centavos para reais

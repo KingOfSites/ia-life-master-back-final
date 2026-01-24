@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { NextResponse } from "next/server";
 import jwt from "jsonwebtoken";
+import { Prisma } from "@prisma/client";
 
 export const runtime = "nodejs";
 
@@ -22,7 +23,7 @@ export async function DELETE(req: Request) {
   const userId = getUserIdFromAuth(req);
   if (!userId) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
 
-  await prisma.$transaction(async (tx) => {
+  await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
     // apaga dependências (ordem importa por FKs sem cascade no User)
     await tx.nutritionFeedback.deleteMany({ where: { userId } });
     await tx.planDay.deleteMany({ where: { userId } }); // PlanMeal/PlanWorkout cascata via planDayId

@@ -32,7 +32,7 @@ const handler = NextAuth({
 					where: { email: credentials.email },
 				});
 
-				if (!user) return null;
+				if (!user || !user.password) return null;
 
 				const match = await bcrypt.compare(credentials.password, user.password);
 				if (!match) return null;

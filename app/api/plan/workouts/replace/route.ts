@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { NextResponse } from "next/server";
 import jwt from "jsonwebtoken";
 import { normalizeDate } from "../../helpers";
+import { Prisma } from "@prisma/client";
 
 export const runtime = "nodejs";
 
@@ -70,7 +71,7 @@ export async function POST(req: Request) {
   }
 
   // Substituir todos os treinos: deletar os antigos e criar os novos
-  await prisma.$transaction(async (tx) => {
+  await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
     // Deletar todos os treinos existentes do planDay
     await tx.planWorkout.deleteMany({
       where: { planDayId: planDay.id },

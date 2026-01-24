@@ -209,11 +209,15 @@ export async function GET(req: NextRequest) {
         });
 
         // Criar mapa de badges do usuário
-        const userBadgeMap = new Map(userBadges.map(ub => [ub.badgeId, ub]));
+        type UserBadgeWithBadge = (typeof userBadges)[0];
+        const userBadgeMap = new Map<string, UserBadgeWithBadge>(
+            userBadges.map((ub: UserBadgeWithBadge) => [ub.badgeId, ub])
+        );
 
         // Combinar badges com progresso do usuário
-        const badgesWithProgress = allBadges.map(badge => {
-            const userBadge = userBadgeMap.get(badge.id);
+        type Badge = (typeof allBadges)[0];
+        const badgesWithProgress = allBadges.map((badge: Badge) => {
+            const userBadge: UserBadgeWithBadge | undefined = userBadgeMap.get(badge.id);
             return {
                 id: badge.id,
                 name: badge.name,

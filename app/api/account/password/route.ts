@@ -36,6 +36,7 @@ export async function PATCH(req: Request) {
 
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) return NextResponse.json({ error: "Usuário não encontrado" }, { status: 404 });
+  if (!user.password) return NextResponse.json({ error: "Usuário não possui senha cadastrada" }, { status: 400 });
 
   const ok = await bcrypt.compare(currentPassword, user.password);
   if (!ok) return NextResponse.json({ error: "Senha atual incorreta" }, { status: 401 });

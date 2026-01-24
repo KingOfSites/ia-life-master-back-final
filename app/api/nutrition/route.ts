@@ -291,31 +291,32 @@ async function getFeedbackInstructions(userId: string | null): Promise<string> {
     }
 
     // Analisar tendências
+    type NutritionFeedback = (typeof recentFeedbacks)[0];
     const avgRating =
-      recentFeedbacks.reduce((sum, f) => sum + f.rating, 0) / recentFeedbacks.length;
-    const lowRatings = recentFeedbacks.filter((f) => f.rating <= 2);
-    const highRatings = recentFeedbacks.filter((f) => f.rating >= 4);
+      recentFeedbacks.reduce((sum: number, f: NutritionFeedback) => sum + f.rating, 0) / recentFeedbacks.length;
+    const lowRatings = recentFeedbacks.filter((f: NutritionFeedback) => f.rating <= 2);
+    const highRatings = recentFeedbacks.filter((f: NutritionFeedback) => f.rating >= 4);
     const comments = recentFeedbacks
-      .map((f) => f.comment)
-      .filter((c): c is string => Boolean(c));
+      .map((f: NutritionFeedback) => f.comment)
+      .filter((c: string | null): c is string => Boolean(c));
 
     // Se a média for baixa ou houver muitos feedbacks negativos, ajustar
     if (avgRating < 3 || lowRatings.length >= 3) {
       const commonIssues: string[] = [];
 
       // Analisar comentários para identificar padrões
-      const lowerComments = comments.map((c) => c.toLowerCase());
+      const lowerComments = comments.map((c: string) => c.toLowerCase());
       
-      if (lowerComments.some((c) => c.includes("alto") || c.includes("muito") || c.includes("demais"))) {
+      if (lowerComments.some((c: string) => c.includes("alto") || c.includes("muito") || c.includes("demais"))) {
         commonIssues.push("valores altos");
       }
-      if (lowerComments.some((c) => c.includes("baixo") || c.includes("pouco") || c.includes("menos"))) {
+      if (lowerComments.some((c: string) => c.includes("baixo") || c.includes("pouco") || c.includes("menos"))) {
         commonIssues.push("valores baixos");
       }
-      if (lowerComments.some((c) => c.includes("faltou") || c.includes("incompleto") || c.includes("detalhar"))) {
+      if (lowerComments.some((c: string) => c.includes("faltou") || c.includes("incompleto") || c.includes("detalhar"))) {
         commonIssues.push("análise incompleta");
       }
-      if (lowerComments.some((c) => c.includes("erro") || c.includes("errado") || c.includes("incorreto"))) {
+      if (lowerComments.some((c: string) => c.includes("erro") || c.includes("errado") || c.includes("incorreto"))) {
         commonIssues.push("identificação incorreta");
       }
 
@@ -349,12 +350,12 @@ async function getFeedbackInstructions(userId: string | null): Promise<string> {
       // Adicionar comentários específicos recentes
       const recentLowRatingComments = lowRatings
         .slice(0, 3)
-        .map((f) => f.comment)
-        .filter((c): c is string => Boolean(c));
+        .map((f: NutritionFeedback) => f.comment)
+        .filter((c: string | null): c is string => Boolean(c));
       
       if (recentLowRatingComments.length > 0) {
         instructions += `\nComentários recentes do usuário:\n`;
-        recentLowRatingComments.forEach((comment, idx) => {
+        recentLowRatingComments.forEach((comment: string, idx: number) => {
           instructions += `${idx + 1}. "${comment}"\n`;
         });
         instructions += `Considere esses comentários ao fazer esta análise.\n`;
@@ -582,11 +583,11 @@ IMPORTANTE:
     }
 
     // backward compat: se vier no formato antigo (nutrition), devolve como antes (mas ainda normaliza números)
-    const isOldFormat = foods.some((f) => f && (f as any).nutrition && !(f as any).nutrition_per_100g);
+    const isOldFormat = foods.some((f: any) => f && (f as any).nutrition && !(f as any).nutrition_per_100g);
 
     if (isOldFormat) {
       const sanitizedOld: NutritionResponse = {
-        foods: foods.map((f, idx) => ({
+        foods: foods.map((f: any, idx: number) => ({
           food_id: f.food_id || `food-${idx + 1}`,
           food_name: f.food_name || "Alimento",
           confidence: Math.max(0, Math.min(1, Number(f.confidence ?? 0))),
@@ -616,14 +617,14 @@ IMPORTANTE:
     }
 
     // Novo formato (produção): calcula macros finais no backend (IA só fornece per100 + weight_g).
-    const rawWeights = foods.map((f) => num0(f.weight_g));
+    const rawWeights = foods.map((f: any) => num0(f.weight_g));
     const baseWeights =
       totalWeightG && totalWeightG > 0
         ? normalizeWeightsToTotal(rawWeights, totalWeightG)
-        : rawWeights.map((w) => (Number.isFinite(w) && w > 0 ? Math.round(w) : 1));
+        : rawWeights.map((w: number) => (Number.isFinite(w) && w > 0 ? Math.round(w) : 1));
 
     // Ajuste profissional (opcional): meta calórica fixa -> PESO variável (escala os pesos)
-    const per100List = foods.map((f) => f.nutrition_per_100g);
+    const per100List = foods.map((f: any) => f.nutrition_per_100g);
     const adjusted =
       forcedCalories && forcedCalories > 0
         ? adjustWeightsToTargetCalories({
@@ -634,7 +635,7 @@ IMPORTANTE:
         : { weights: baseWeights, factor: 1, currentTotal: 0, finalTotal: 0 };
 
     const sanitized: NutritionResponse = {
-      foods: foods.map((f, idx) => {
+      foods: foods.map((f: any, idx: number) => {
         const weightG = adjusted.weights[idx] ?? 0;
         const per = f.nutrition_per_100g ?? ({} as NutritionPer100g);
         const factor = weightG / 100;
@@ -646,7 +647,7 @@ IMPORTANTE:
 
         // Se tiver forcedCalories e ficar a 1-3 kcal do alvo por arredondamento, corrige no primeiro item (visual)
         if (forcedCalories && forcedCalories > 0 && idx === 0 && foods.length > 0) {
-          const totalNow = foods.reduce((sum, _, j) => {
+          const totalNow = foods.reduce((sum: number, _: any, j: number) => {
             const wj = adjusted.weights[j] ?? 0;
             const pj = foods[j]?.nutrition_per_100g ?? ({} as NutritionPer100g);
             return sum + round0(num0(pj.calories) * (wj / 100));

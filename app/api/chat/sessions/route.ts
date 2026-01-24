@@ -31,8 +31,10 @@ export async function GET(req: Request) {
     },
   });
 
+  type SessionWithMessages = (typeof sessions)[0];
+
   return NextResponse.json(
-    sessions.map((s) => ({
+    sessions.map((s: SessionWithMessages) => ({
       id: s.id,
       title: s.title,
       createdAt: s.createdAt,

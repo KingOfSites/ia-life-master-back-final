@@ -59,8 +59,9 @@ export async function POST(req: NextRequest) {
         let totalCarbs = 0;
         let totalFat = 0;
 
-        meals.forEach(meal => {
-            meal.foods.forEach(food => {
+        type MealWithFoods = (typeof meals)[0];
+        meals.forEach((meal: MealWithFoods) => {
+            meal.foods.forEach((food: MealWithFoods["foods"][0]) => {
                 totalProtein += food.protein || 0;
                 totalCarbs += food.carbohydrates || 0;
                 totalFat += food.fat || 0;
@@ -75,11 +76,15 @@ export async function POST(req: NextRequest) {
         const allBadges = await prisma.badge.findMany({
             orderBy: [{ category: "asc" }, { level: "asc" }],
         });
+        type Badge = (typeof allBadges)[0];
         const userBadges = await prisma.userBadge.findMany({
             where: { userId },
         });
 
-        const userBadgeMap = new Map(userBadges.map(ub => [ub.badgeId, ub]));
+        type UserBadge = (typeof userBadges)[0];
+        const userBadgeMap = new Map<string, UserBadge>(
+            userBadges.map((ub: UserBadge) => [ub.badgeId, ub])
+        );
         const unlockedBadges: string[] = [];
         const newAchievements: any[] = [];
 
@@ -122,17 +127,17 @@ export async function POST(req: NextRequest) {
                     return daysWithMealsAndWorkouts.length;
                 }
                 case "diversity": {
-                    const uniqueMealTypes = new Set(meals.map(m => m.mealType).filter(Boolean));
-                    const uniqueFoods = new Set(meals.flatMap(m => m.foods.map(f => f.foodName.toLowerCase())));
+                    const uniqueMealTypes = new Set(meals.map((m: MealWithFoods) => m.mealType).filter(Boolean));
+                    const uniqueFoods = new Set(meals.flatMap((m: MealWithFoods) => m.foods.map((f: MealWithFoods["foods"][0]) => f.foodName.toLowerCase())));
                     return Math.max(uniqueMealTypes.size, uniqueFoods.size);
                 }
                 case "consistency": {
-                    const mealsByDate = meals.reduce((acc, meal) => {
+                    const mealsByDate = meals.reduce((acc: Record<string, MealWithFoods[]>, meal: MealWithFoods) => {
                         const date = new Date(meal.createdAt).toDateString();
                         if (!acc[date]) acc[date] = [];
                         acc[date].push(meal);
                         return acc;
-                    }, {} as Record<string, typeof meals>);
+                    }, {} as Record<string, MealWithFoods[]>);
                     
                     const sortedDates = Object.keys(mealsByDate).sort();
                     let consecutiveDays = 0;
@@ -165,7 +170,7 @@ export async function POST(req: NextRequest) {
             
             // Encontrar o nível máximo que pode ser desbloqueado
             let maxUnlockableLevel = 0;
-            for (const badge of categoryBadges.sort((a, b) => a.level - b.level)) {
+            for (const badge of categoryBadges.sort((a: Badge, b: Badge) => a.level - b.level)) {
                 if (progress >= badge.requirement) {
                     maxUnlockableLevel = Math.max(maxUnlockableLevel, badge.level);
                 }
@@ -174,7 +179,7 @@ export async function POST(req: NextRequest) {
             // Processar cada badge da categoria
             for (const badge of categoryBadges) {
                 const shouldUnlock = progress >= badge.requirement && badge.level <= maxUnlockableLevel;
-                const existingUserBadge = userBadges.find(ub => ub.badgeId === badge.id);
+                const existingUserBadge = userBadges.find((ub: UserBadge) => ub.badgeId === badge.id);
                 const currentLevel = existingUserBadge?.currentLevel || 0;
                 const newLevel = shouldUnlock ? Math.max(currentLevel, badge.level) : currentLevel;
                 const isNewUnlock = newLevel > currentLevel;

@@ -108,9 +108,10 @@ export async function POST(req: NextRequest) {
             }
             
             // Se ainda não encontrou, tentar pelo preference_id
-            if (!subscription && payment.preference_id) {
+            const paymentAny = payment as any;
+            if (!subscription && paymentAny.preference_id) {
                 subscription = await prisma.subscription.findFirst({
-                    where: { mpPreferenceId: payment.preference_id },
+                    where: { mpPreferenceId: paymentAny.preference_id },
                 });
             }
             
@@ -129,7 +130,7 @@ export async function POST(req: NextRequest) {
                 console.error("[WEBHOOK] Subscription not found for payment:", paymentId, {
                     externalReference,
                     metadata,
-                    preferenceId: payment.preference_id,
+                    preferenceId: paymentAny.preference_id,
                 });
                 // Não retornar erro, apenas logar - o webhook deve sempre retornar 200
                 return NextResponse.json({ received: true, warning: "Assinatura não encontrada" });
@@ -142,7 +143,7 @@ export async function POST(req: NextRequest) {
 
             const paymentData = {
                 mpPaymentId: String(paymentId),
-                mpPreferenceId: payment.preference_id || null,
+                mpPreferenceId: paymentAny.preference_id || null,
                 amount: payment.transaction_amount || 0,
                 currency: payment.currency_id || "BRL",
                 status: payment.status || "pending",

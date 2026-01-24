@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { NextResponse } from "next/server";
 import jwt from "jsonwebtoken";
 import { normalizeDate } from "../../helpers";
+import { Prisma } from "@prisma/client";
 
 export const runtime = "nodejs";
 
@@ -76,7 +77,7 @@ export async function POST(req: Request) {
   console.log("[PLAN/MEALS/REPLACE] PlanDay ID:", planDay.id, "Meals to add:", meals.length);
 
   // Substituir todas as refeições: deletar as antigas e criar as novas
-  await prisma.$transaction(async (tx) => {
+  await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
     // Deletar todas as refeições existentes do planDay
     const deletedCount = await tx.planMeal.deleteMany({
       where: { planDayId: planDay.id },
