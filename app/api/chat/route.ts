@@ -341,7 +341,7 @@ export async function POST(req: Request) {
 		// 6000 tokens para muito complexas, 4000 para complexas, 2000 para normais
 		const maxTokens = isVeryComplexRequest ? 6000 : isComplexRequest ? 4000 : 2000;
 		
-		const completion = await openai.chat.completions.create({
+		const completion = await openai().chat.completions.create({
 			model: "gpt-4o-mini",
 			temperature: 0.2,
 			max_tokens: maxTokens,

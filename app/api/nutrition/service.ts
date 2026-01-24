@@ -2,7 +2,7 @@ import { openai } from "@/lib/openai";
 import { nutritionPrompt } from "./prompt";
 
 export async function analyzeFoodWithAI(imageBase64: string) {
-  const response = await openai.chat.completions.create({
+  const response = await openai().chat.completions.create({
     model: "gpt-4o-mini",
     messages: [
       {

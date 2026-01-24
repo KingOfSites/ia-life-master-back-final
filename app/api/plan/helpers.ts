@@ -308,7 +308,7 @@ IMPORTANTE: Todos os valores devem ser números inteiros (arredondados).`;
 
 Calcule e retorne o JSON com calories, protein, carbs, fat e explanation.`;
 
-    const completion = await openai.chat.completions.create({
+    const completion = await openai().chat.completions.create({
       model: "gpt-4o-mini",
       temperature: 0.0, // Temperatura zero para máxima consistência
       max_tokens: 500,

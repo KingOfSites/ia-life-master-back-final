@@ -493,7 +493,7 @@ Formato obrigatório:
 
     const systemPrompt = basePrompt + feedbackInstructions;
 
-    const completion = await openai.chat.completions.create({
+    const completion = await openai().chat.completions.create({
       model: "gpt-4o-mini",
       temperature: 0.0,
       max_tokens: wantsWeightsFlow ? 900 : 650,
