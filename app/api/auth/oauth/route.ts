@@ -32,24 +32,40 @@ export async function POST(req: NextRequest) {
 
 		// Para Apple: email e nome são obrigatórios (mensagens amigáveis)
 		if (provider === "apple") {
-			// Log para debug
-			console.log("[OAUTH] Apple - dados recebidos:", { 
-				email: email ? "presente" : "ausente", 
-				name: name ? `"${name}"` : "ausente",
+			// Log completo para debug
+			console.log("[OAUTH] Apple - Body completo recebido:", JSON.stringify(body, null, 2));
+			console.log("[OAUTH] Apple - Valores extraídos:", { 
+				email: email, 
+				name: name,
+				nameType: typeof name,
+				nameLength: name?.length,
 				providerId 
 			});
 			
 			if (!email || (typeof email === "string" && email.trim() === "")) {
+				console.log("[OAUTH] Apple - Email inválido, rejeitando");
 				return NextResponse.json(
 					{ error: "Por favor, informe seu e-mail" },
 					{ status: 400 }
 				);
 			}
 			
-			// Validar nome: aceitar se for string não vazia e não for providerId ou fallback
-			const nameStr = typeof name === "string" ? name.trim() : "";
+			// Validar nome: aceitar qualquer string não vazia que não seja providerId
+			// Converter para string se necessário e fazer trim
+			const nameStr = name != null ? String(name).trim() : "";
+			
+			console.log("[OAUTH] Apple - Nome processado:", { 
+				original: name, 
+				processed: nameStr, 
+				isValid: nameStr && nameStr !== "" && nameStr !== providerId && nameStr !== "Usuário Apple"
+			});
+			
 			if (!nameStr || nameStr === "" || nameStr === "Usuário Apple" || nameStr === providerId) {
-				console.log("[OAUTH] Apple - nome inválido:", { nameStr, providerId });
+				console.log("[OAUTH] Apple - Nome inválido, rejeitando. Motivo:", {
+					empty: !nameStr || nameStr === "",
+					isFallback: nameStr === "Usuário Apple",
+					isProviderId: nameStr === providerId
+				});
 				return NextResponse.json(
 					{ error: "Por favor, informe seu nome" },
 					{ status: 400 }
