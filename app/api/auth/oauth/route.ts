@@ -22,33 +22,18 @@ export async function POST(req: NextRequest) {
 		const body: OAuthPayload = await req.json();
 		const { provider, providerId, email, name, profileImage, accessToken, idToken, identityToken } = body;
 
-		// Validação básica
+		// Validação mínima - apenas provider e providerId são realmente obrigatórios
 		if (!provider || !providerId) {
 			return NextResponse.json(
-				{ error: "Dados obrigatórios faltando: provider e providerId são obrigatórios" },
+				{ error: "Provider e providerId são obrigatórios" },
 				{ status: 400 }
 			);
 		}
 
-		// Para Apple, email pode ser privado relay, então aceitar mesmo se não vier
-		// Para Google, email é obrigatório
-		if (provider === "google" && !email) {
-			return NextResponse.json(
-				{ error: "Email é obrigatório para login com Google" },
-				{ status: 400 }
-			);
-		}
-
-		// Normalizar valores para Apple (Apple pode não enviar name/email em logins subsequentes)
-		const normalizedEmail = email || (provider === "apple" ? `${providerId}@privaterelay.appleid.com` : "");
+		// Normalizar valores - sempre ter fallbacks para evitar erros
+		// Apple pode não enviar name/email em logins subsequentes
+		const normalizedEmail = email || (provider === "apple" ? `${providerId}@privaterelay.appleid.com` : `${providerId}@oauth.temp`);
 		const normalizedName = name || (provider === "apple" ? "Usuário Apple" : "Usuário");
-
-		if (!normalizedEmail) {
-			return NextResponse.json(
-				{ error: "Email é obrigatório" },
-				{ status: 400 }
-			);
-		}
 
 		if (provider !== "google" && provider !== "apple") {
 			return NextResponse.json(
