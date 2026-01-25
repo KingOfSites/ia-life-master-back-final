@@ -12,14 +12,15 @@ interface OAuthPayload {
 	name: string;
 	profileImage?: string;
 	// Tokens para validação
-	accessToken?: string; // Para Google
+	accessToken?: string; // Para Google (web)
+	idToken?: string; // Para Google (mobile) - mais seguro
 	identityToken?: string; // Para Apple
 }
 
 export async function POST(req: NextRequest) {
 	try {
 		const body: OAuthPayload = await req.json();
-		const { provider, providerId, email, name, profileImage, accessToken, identityToken } = body;
+		const { provider, providerId, email, name, profileImage, accessToken, idToken, identityToken } = body;
 
 		if (!provider || !providerId || !email || !name) {
 			return NextResponse.json(
@@ -35,33 +36,59 @@ export async function POST(req: NextRequest) {
 			);
 		}
 
-		// Validar tokens
-		if (provider === "google" && accessToken) {
-			const validated = await validateGoogleToken(accessToken);
-			if (!validated || validated.id !== providerId) {
-				return NextResponse.json(
-					{ error: "Token do Google inválido ou não corresponde ao usuário" },
-					{ status: 401 }
-				);
-			}
-			// Usar dados validados do Google
-			if (validated.email !== email) {
-				console.warn("[OAUTH] Email do token diferente do enviado:", validated.email, email);
+		// Validar tokens do Google
+		if (provider === "google") {
+			// Priorizar idToken (mobile) sobre accessToken (web)
+			const tokenToValidate = idToken || accessToken;
+			
+			if (tokenToValidate) {
+				const validated = await validateGoogleToken(tokenToValidate);
+				if (!validated || validated.id !== providerId) {
+					return NextResponse.json(
+						{ error: "Token do Google inválido ou não corresponde ao usuário" },
+						{ status: 401 }
+					);
+				}
+				// Usar dados validados do Google
+				if (validated.email !== email) {
+					console.warn("[OAUTH] Email do token diferente do enviado:", validated.email, email);
+				}
+			} else {
+				// Em desenvolvimento, permitir sem token (mas logar aviso)
+				if (process.env.NODE_ENV === "production") {
+					return NextResponse.json(
+						{ error: "Token do Google é obrigatório" },
+						{ status: 401 }
+					);
+				}
+				console.warn("[OAUTH] Google OAuth sem token (modo desenvolvimento)");
 			}
 		}
 
-		if (provider === "apple" && identityToken) {
-			const validated = await validateAppleToken(identityToken);
-			if (!validated || validated.sub !== providerId) {
-				return NextResponse.json(
-					{ error: "Token da Apple inválido ou não corresponde ao usuário" },
-					{ status: 401 }
-				);
-			}
-			// Se o email não foi fornecido, usar o do token (se disponível)
-			if (validated.email && !email.includes("@privaterelay.appleid.com")) {
-				// Apple pode não fornecer email em logins subsequentes
-				// Se o email do token for válido, usar ele
+		// Validar token da Apple
+		if (provider === "apple") {
+			if (identityToken) {
+				const validated = await validateAppleToken(identityToken);
+				if (!validated || validated.sub !== providerId) {
+					return NextResponse.json(
+						{ error: "Token da Apple inválido ou não corresponde ao usuário" },
+						{ status: 401 }
+					);
+				}
+				// Se o email não foi fornecido, usar o do token (se disponível)
+				if (validated.email && !email.includes("@privaterelay.appleid.com")) {
+					// Apple pode não fornecer email em logins subsequentes
+					// Se o email do token for válido, usar ele
+				}
+			} else {
+				// Em desenvolvimento, permitir sem token (mas logar aviso)
+				if (process.env.NODE_ENV === "production") {
+					return NextResponse.json(
+						{ error: "Token da Apple é obrigatório" },
+						{ status: 401 }
+					);
+				}
+				console.warn("[OAUTH] Apple OAuth sem token (modo desenvolvimento)");
 			}
 		}
 

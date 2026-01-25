@@ -6,21 +6,45 @@ import jwt from "jsonwebtoken";
 import jwkToPem from "jwk-to-pem";
 
 /**
- * Valida o token de acesso do Google
- * @param accessToken Token de acesso retornado pelo Google
+ * Valida o token do Google (aceita accessToken ou idToken)
+ * @param token Token de acesso (accessToken) ou JWT (idToken) retornado pelo Google
  * @returns Informações do usuário se válido, null caso contrário
  */
-export async function validateGoogleToken(accessToken: string): Promise<{
+export async function validateGoogleToken(token: string): Promise<{
 	id: string;
 	email: string;
 	name?: string;
 	picture?: string;
 } | null> {
 	try {
-		// Verificar token com a API do Google
+		// Tentar decodificar como JWT primeiro (idToken)
+		try {
+			const decoded = jwt.decode(token, { complete: true }) as any;
+			
+			// Se for um JWT válido do Google
+			if (decoded && decoded.payload && decoded.payload.iss === "https://accounts.google.com") {
+				// Validar expiração
+				if (decoded.payload.exp && decoded.payload.exp < Date.now() / 1000) {
+					console.error("[GOOGLE VALIDATION] idToken expirado");
+					return null;
+				}
+
+				// Retornar dados do JWT
+				return {
+					id: decoded.payload.sub || decoded.payload.user_id || "",
+					email: decoded.payload.email || "",
+					name: decoded.payload.name || decoded.payload.given_name || undefined,
+					picture: decoded.payload.picture || undefined,
+				};
+			}
+		} catch (jwtError) {
+			// Não é JWT, continuar com validação via API
+		}
+
+		// Se não for JWT, tratar como accessToken e validar via API
 		const response = await fetch("https://www.googleapis.com/oauth2/v2/userinfo", {
 			headers: {
-				Authorization: `Bearer ${accessToken}`,
+				Authorization: `Bearer ${token}`,
 			},
 		});
 
