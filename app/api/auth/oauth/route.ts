@@ -30,10 +30,25 @@ export async function POST(req: NextRequest) {
 			);
 		}
 
-		// Normalizar valores - sempre ter fallbacks para evitar erros
-		// Apple pode não enviar name/email em logins subsequentes
-		const normalizedEmail = email || (provider === "apple" ? `${providerId}@privaterelay.appleid.com` : `${providerId}@oauth.temp`);
-		const normalizedName = name || (provider === "apple" ? "Usuário Apple" : "Usuário");
+		// Para Apple: email e nome são obrigatórios
+		if (provider === "apple") {
+			if (!email) {
+				return NextResponse.json(
+					{ error: "Email é obrigatório para login com Apple" },
+					{ status: 400 }
+				);
+			}
+			if (!name) {
+				return NextResponse.json(
+					{ error: "Nome é obrigatório para login com Apple" },
+					{ status: 400 }
+				);
+			}
+		}
+
+		// Normalizar valores - Google pode ter fallback, Apple já validado acima
+		const normalizedEmail = provider === "apple" ? email! : (email || `${providerId}@oauth.temp`);
+		const normalizedName = provider === "apple" ? name! : (name || "Usuário");
 
 		if (provider !== "google" && provider !== "apple") {
 			return NextResponse.json(
