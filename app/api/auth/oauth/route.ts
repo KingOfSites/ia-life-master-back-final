@@ -22,9 +22,30 @@ export async function POST(req: NextRequest) {
 		const body: OAuthPayload = await req.json();
 		const { provider, providerId, email, name, profileImage, accessToken, idToken, identityToken } = body;
 
-		if (!provider || !providerId || !email || !name) {
+		// Validação básica
+		if (!provider || !providerId) {
 			return NextResponse.json(
-				{ error: "Dados obrigatórios faltando" },
+				{ error: "Dados obrigatórios faltando: provider e providerId são obrigatórios" },
+				{ status: 400 }
+			);
+		}
+
+		// Para Apple, email pode ser privado relay, então aceitar mesmo se não vier
+		// Para Google, email é obrigatório
+		if (provider === "google" && !email) {
+			return NextResponse.json(
+				{ error: "Email é obrigatório para login com Google" },
+				{ status: 400 }
+			);
+		}
+
+		// Normalizar valores para Apple (Apple pode não enviar name/email em logins subsequentes)
+		const normalizedEmail = email || (provider === "apple" ? `${providerId}@privaterelay.appleid.com` : "");
+		const normalizedName = name || (provider === "apple" ? "Usuário Apple" : "Usuário");
+
+		if (!normalizedEmail) {
+			return NextResponse.json(
+				{ error: "Email é obrigatório" },
 				{ status: 400 }
 			);
 		}
@@ -35,6 +56,10 @@ export async function POST(req: NextRequest) {
 				{ status: 400 }
 			);
 		}
+
+		// Usar valores normalizados
+		const finalEmail = normalizedEmail;
+		const finalName = normalizedName;
 
 		// Validar tokens do Google
 		if (provider === "google") {
@@ -50,8 +75,8 @@ export async function POST(req: NextRequest) {
 					);
 				}
 				// Usar dados validados do Google
-				if (validated.email !== email) {
-					console.warn("[OAUTH] Email do token diferente do enviado:", validated.email, email);
+				if (validated.email !== finalEmail) {
+					console.warn("[OAUTH] Email do token diferente do enviado:", validated.email, finalEmail);
 				}
 			} else {
 				// Em desenvolvimento, permitir sem token (mas logar aviso)
@@ -76,9 +101,10 @@ export async function POST(req: NextRequest) {
 					);
 				}
 				// Se o email não foi fornecido, usar o do token (se disponível)
-				if (validated.email && !email.includes("@privaterelay.appleid.com")) {
+				if (validated.email && !finalEmail.includes("@privaterelay.appleid.com")) {
 					// Apple pode não fornecer email em logins subsequentes
 					// Se o email do token for válido, usar ele
+					// Nota: validated.email pode ser usado aqui se necessário
 				}
 			} else {
 				// Em desenvolvimento, permitir sem token (mas logar aviso)
@@ -105,15 +131,15 @@ export async function POST(req: NextRequest) {
 			user = await prisma.user.update({
 				where: { id: user.id },
 				data: {
-					name: name || user.name,
-					email, // Atualizar email caso tenha mudado
+					name: finalName || user.name,
+					email: finalEmail, // Atualizar email caso tenha mudado
 					profileImage: profileImage || user.profileImage,
 				},
 			});
 		} else {
 			// Verificar se existe usuário com este email
 			const existingByEmail = await prisma.user.findUnique({
-				where: { email },
+				where: { email: finalEmail },
 			});
 
 			if (existingByEmail) {
@@ -124,7 +150,7 @@ export async function POST(req: NextRequest) {
 						data: {
 							provider,
 							providerId,
-							name: name || existingByEmail.name,
+							name: finalName || existingByEmail.name,
 							profileImage: profileImage || existingByEmail.profileImage,
 						},
 					});
@@ -139,8 +165,8 @@ export async function POST(req: NextRequest) {
 				// Criar novo usuário
 				user = await prisma.user.create({
 					data: {
-						name: name.trim(),
-						email,
+						name: finalName.trim(),
+						email: finalEmail,
 						provider,
 						providerId,
 						profileImage: profileImage || null,
