@@ -38,7 +38,8 @@ export async function POST(req: NextRequest) {
 					{ status: 400 }
 				);
 			}
-			if (!name || name.trim() === "" || name === "Usuário Apple") {
+			// Validar nome: não pode ser vazio, não pode ser o providerId, não pode ser fallback
+			if (!name || name.trim() === "" || name === "Usuário Apple" || name === providerId) {
 				return NextResponse.json(
 					{ error: "Por favor, informe seu nome" },
 					{ status: 400 }
@@ -136,7 +137,7 @@ export async function POST(req: NextRequest) {
 
 			// Para Apple: só atualizar nome se o usuário NÃO tem nome E o nome veio agora
 			if (provider === "apple") {
-				if (!user.name && name && name.trim() && name !== "Usuário Apple") {
+				if (!user.name && name && name.trim() && name !== "Usuário Apple" && name !== providerId) {
 					updateData.name = name.trim();
 				}
 				// Se já tem nome, não tocar (Apple não envia mais)
@@ -168,7 +169,7 @@ export async function POST(req: NextRequest) {
 
 					// REGRA APPLE: Só atualizar nome se o usuário NÃO tem nome E o nome veio agora
 					if (provider === "apple") {
-						if (!existingByEmail.name && name && name.trim() && name !== "Usuário Apple") {
+						if (!existingByEmail.name && name && name.trim() && name !== "Usuário Apple" && name !== providerId) {
 							updateData.name = name.trim();
 						} else {
 							// Manter o nome existente
@@ -192,10 +193,18 @@ export async function POST(req: NextRequest) {
 				}
 			} else {
 				// Criar novo usuário
-				// Para Apple: se não veio nome, usar fallback (usuário pode editar depois)
-				const userName = provider === "apple" 
-					? (name && name.trim() && name !== "Usuário Apple" ? name.trim() : "Usuário")
-					: finalName.trim();
+				// Para Apple: garantir que o nome não seja o providerId
+				let userName: string;
+				if (provider === "apple") {
+					if (name && name.trim() && name !== "Usuário Apple" && name !== providerId) {
+						userName = name.trim();
+					} else {
+						userName = "Usuário"; // Fallback seguro
+					}
+				} else {
+					// Para Google: usar o nome que veio ou fallback
+					userName = finalName && finalName.trim() ? finalName.trim() : "Usuário";
+				}
 
 				user = await prisma.user.create({
 					data: {
