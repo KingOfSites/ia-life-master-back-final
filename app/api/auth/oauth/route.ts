@@ -30,17 +30,17 @@ export async function POST(req: NextRequest) {
 			);
 		}
 
-		// Para Apple: email e nome são obrigatórios
+		// Para Apple: email e nome são obrigatórios (mensagens amigáveis)
 		if (provider === "apple") {
 			if (!email) {
 				return NextResponse.json(
-					{ error: "Email é obrigatório para login com Apple" },
+					{ error: "Por favor, informe seu e-mail" },
 					{ status: 400 }
 				);
 			}
-			if (!name) {
+			if (!name || name.trim() === "" || name === "Usuário Apple") {
 				return NextResponse.json(
-					{ error: "Nome é obrigatório para login com Apple" },
+					{ error: "Por favor, informe seu nome" },
 					{ status: 400 }
 				);
 			}
