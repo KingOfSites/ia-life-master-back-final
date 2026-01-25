@@ -127,14 +127,29 @@ export async function POST(req: NextRequest) {
 		});
 
 		if (user) {
-			// Usuário existe com este provider, apenas atualizar dados
+			// Usuário existe com este provider
+			// REGRA APPLE: Nome só vem na primeira vez, nunca sobrescrever se já existe
+			const updateData: any = {
+				email: finalEmail, // Atualizar email caso tenha mudado
+				profileImage: profileImage || user.profileImage,
+			};
+
+			// Para Apple: só atualizar nome se o usuário NÃO tem nome E o nome veio agora
+			if (provider === "apple") {
+				if (!user.name && name && name.trim() && name !== "Usuário Apple") {
+					updateData.name = name.trim();
+				}
+				// Se já tem nome, não tocar (Apple não envia mais)
+			} else {
+				// Para Google: sempre atualizar se vier
+				if (finalName && finalName.trim()) {
+					updateData.name = finalName.trim();
+				}
+			}
+
 			user = await prisma.user.update({
 				where: { id: user.id },
-				data: {
-					name: finalName || user.name,
-					email: finalEmail, // Atualizar email caso tenha mudado
-					profileImage: profileImage || user.profileImage,
-				},
+				data: updateData,
 			});
 		} else {
 			// Verificar se existe usuário com este email
@@ -145,14 +160,28 @@ export async function POST(req: NextRequest) {
 			if (existingByEmail) {
 				// Se o usuário existe com email mas sem provider, vincular o OAuth
 				if (!existingByEmail.provider || !existingByEmail.providerId) {
+					const updateData: any = {
+						provider,
+						providerId,
+						profileImage: profileImage || existingByEmail.profileImage,
+					};
+
+					// REGRA APPLE: Só atualizar nome se o usuário NÃO tem nome E o nome veio agora
+					if (provider === "apple") {
+						if (!existingByEmail.name && name && name.trim() && name !== "Usuário Apple") {
+							updateData.name = name.trim();
+						} else {
+							// Manter o nome existente
+							updateData.name = existingByEmail.name;
+						}
+					} else {
+						// Para Google: usar o nome que veio ou manter o existente
+						updateData.name = finalName || existingByEmail.name;
+					}
+
 					user = await prisma.user.update({
 						where: { id: existingByEmail.id },
-						data: {
-							provider,
-							providerId,
-							name: finalName || existingByEmail.name,
-							profileImage: profileImage || existingByEmail.profileImage,
-						},
+						data: updateData,
 					});
 				} else {
 					// Email já está vinculado a outro provider
@@ -163,9 +192,14 @@ export async function POST(req: NextRequest) {
 				}
 			} else {
 				// Criar novo usuário
+				// Para Apple: se não veio nome, usar fallback (usuário pode editar depois)
+				const userName = provider === "apple" 
+					? (name && name.trim() && name !== "Usuário Apple" ? name.trim() : "Usuário")
+					: finalName.trim();
+
 				user = await prisma.user.create({
 					data: {
-						name: finalName.trim(),
+						name: userName,
 						email: finalEmail,
 						provider,
 						providerId,
