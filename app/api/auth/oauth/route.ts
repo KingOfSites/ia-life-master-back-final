@@ -32,14 +32,24 @@ export async function POST(req: NextRequest) {
 
 		// Para Apple: email e nome são obrigatórios (mensagens amigáveis)
 		if (provider === "apple") {
-			if (!email) {
+			// Log para debug
+			console.log("[OAUTH] Apple - dados recebidos:", { 
+				email: email ? "presente" : "ausente", 
+				name: name ? `"${name}"` : "ausente",
+				providerId 
+			});
+			
+			if (!email || (typeof email === "string" && email.trim() === "")) {
 				return NextResponse.json(
 					{ error: "Por favor, informe seu e-mail" },
 					{ status: 400 }
 				);
 			}
-			// Validar nome: não pode ser vazio, não pode ser o providerId, não pode ser fallback
-			if (!name || name.trim() === "" || name === "Usuário Apple" || name === providerId) {
+			
+			// Validar nome: aceitar se for string não vazia e não for providerId ou fallback
+			const nameStr = typeof name === "string" ? name.trim() : "";
+			if (!nameStr || nameStr === "" || nameStr === "Usuário Apple" || nameStr === providerId) {
+				console.log("[OAUTH] Apple - nome inválido:", { nameStr, providerId });
 				return NextResponse.json(
 					{ error: "Por favor, informe seu nome" },
 					{ status: 400 }
