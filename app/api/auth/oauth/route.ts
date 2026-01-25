@@ -32,40 +32,27 @@ export async function POST(req: NextRequest) {
 
 		// Para Apple: email e nome são obrigatórios (mensagens amigáveis)
 		if (provider === "apple") {
-			// Log completo para debug
-			console.log("[OAUTH] Apple - Body completo recebido:", JSON.stringify(body, null, 2));
-			console.log("[OAUTH] Apple - Valores extraídos:", { 
-				email: email, 
-				name: name,
-				nameType: typeof name,
-				nameLength: name?.length,
-				providerId 
-			});
-			
-			if (!email || (typeof email === "string" && email.trim() === "")) {
-				console.log("[OAUTH] Apple - Email inválido, rejeitando");
+			// Validar email
+			const emailStr = email != null ? String(email).trim() : "";
+			if (!emailStr || emailStr === "") {
 				return NextResponse.json(
 					{ error: "Por favor, informe seu e-mail" },
 					{ status: 400 }
 				);
 			}
 			
-			// Validar nome: aceitar qualquer string não vazia que não seja providerId
+			// Validar nome: aceitar qualquer string não vazia com pelo menos 2 caracteres
 			// Converter para string se necessário e fazer trim
 			const nameStr = name != null ? String(name).trim() : "";
 			
-			console.log("[OAUTH] Apple - Nome processado:", { 
-				original: name, 
-				processed: nameStr, 
-				isValid: nameStr && nameStr !== "" && nameStr !== providerId && nameStr !== "Usuário Apple"
-			});
+			// Aceitar se tiver pelo menos 2 caracteres e não for providerId ou fallback
+			const isValidName = nameStr && 
+				nameStr.length >= 2 && 
+				nameStr !== providerId && 
+				nameStr !== "Usuário Apple" &&
+				nameStr !== "Usuário";
 			
-			if (!nameStr || nameStr === "" || nameStr === "Usuário Apple" || nameStr === providerId) {
-				console.log("[OAUTH] Apple - Nome inválido, rejeitando. Motivo:", {
-					empty: !nameStr || nameStr === "",
-					isFallback: nameStr === "Usuário Apple",
-					isProviderId: nameStr === providerId
-				});
+			if (!isValidName) {
 				return NextResponse.json(
 					{ error: "Por favor, informe seu nome" },
 					{ status: 400 }
@@ -73,9 +60,13 @@ export async function POST(req: NextRequest) {
 			}
 		}
 
-		// Normalizar valores - Google pode ter fallback, Apple já validado acima
-		const normalizedEmail = provider === "apple" ? email! : (email || `${providerId}@oauth.temp`);
-		const normalizedName = provider === "apple" ? name! : (name || "Usuário");
+		// Normalizar valores - Apple já validado acima, usar valores processados
+		const normalizedEmail = provider === "apple" 
+			? String(email).trim()
+			: (email || `${providerId}@oauth.temp`);
+		const normalizedName = provider === "apple"
+			? String(name).trim()
+			: (name || "Usuário");
 
 		if (provider !== "google" && provider !== "apple") {
 			return NextResponse.json(
