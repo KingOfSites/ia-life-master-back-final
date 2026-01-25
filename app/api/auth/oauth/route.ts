@@ -30,27 +30,38 @@ export async function POST(req: NextRequest) {
 			);
 		}
 
-		// Para Apple: email e nome são obrigatórios (mensagens amigáveis)
+		// Processar e validar valores para Apple
+		let processedName = "";
+		let processedEmail = "";
+		
 		if (provider === "apple") {
-			// Validar email
-			const emailStr = email != null ? String(email).trim() : "";
-			if (!emailStr || emailStr === "") {
+			// Processar email
+			processedEmail = email != null && email !== "" ? String(email).trim() : "";
+			if (!processedEmail || processedEmail === "") {
 				return NextResponse.json(
 					{ error: "Por favor, informe seu e-mail" },
 					{ status: 400 }
 				);
 			}
 			
-			// Validar nome: aceitar qualquer string não vazia com pelo menos 2 caracteres
-			// Converter para string se necessário e fazer trim
-			const nameStr = name != null ? String(name).trim() : "";
+			// Processar nome: aceitar qualquer string não vazia
+			// Tratar null, undefined, string vazia, ou valores inválidos
+			if (name != null && name !== undefined && name !== "") {
+				processedName = String(name).trim();
+				// Rejeitar se for "null", "undefined" ou string vazia após trim
+				if (processedName === "null" || processedName === "undefined" || processedName === "") {
+					processedName = "";
+				}
+			}
 			
-			// Aceitar se tiver pelo menos 2 caracteres e não for providerId ou fallback
-			const isValidName = nameStr && 
-				nameStr.length >= 2 && 
-				nameStr !== providerId && 
-				nameStr !== "Usuário Apple" &&
-				nameStr !== "Usuário";
+			// Validar nome: aceitar se tiver pelo menos 1 caractere e não for providerId ou fallback
+			const isValidName = processedName && 
+				processedName.length >= 1 && 
+				processedName !== providerId && 
+				processedName !== "Usuário Apple" &&
+				processedName !== "Usuário" &&
+				processedName.toLowerCase() !== "null" &&
+				processedName.toLowerCase() !== "undefined";
 			
 			if (!isValidName) {
 				return NextResponse.json(
@@ -60,12 +71,12 @@ export async function POST(req: NextRequest) {
 			}
 		}
 
-		// Normalizar valores - Apple já validado acima, usar valores processados
+		// Normalizar valores - usar valores processados para Apple
 		const normalizedEmail = provider === "apple" 
-			? String(email).trim()
+			? processedEmail
 			: (email || `${providerId}@oauth.temp`);
 		const normalizedName = provider === "apple"
-			? String(name).trim()
+			? processedName
 			: (name || "Usuário");
 
 		if (provider !== "google" && provider !== "apple") {
