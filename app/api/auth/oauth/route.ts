@@ -24,7 +24,7 @@ export async function POST(req: NextRequest) {
 
 		// Validação mínima - apenas provider e providerId são realmente obrigatórios
 		if (!provider || !providerId) {
-			return NextResponse.json(   
+			return NextResponse.json(
 				{ error: "Provider e providerId são obrigatórios" },
 				{ status: 400 }
 			);
@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
 		// Processar e validar valores para Apple
 		let processedName = "";
 		let processedEmail = "";
-		
+
 		if (provider === "apple") {
 			// Processar email
 			processedEmail = email != null && email !== "" ? String(email).trim() : "";
@@ -43,7 +43,7 @@ export async function POST(req: NextRequest) {
 					{ status: 400 }
 				);
 			}
-			
+
 			// Processar nome: aceitar qualquer string não vazia
 			// Tratar null, undefined, string vazia, ou valores inválidos
 			if (name != null && name !== undefined && name !== "") {
@@ -53,11 +53,11 @@ export async function POST(req: NextRequest) {
 					processedName = "";
 				}
 			}
-			
+
 			// Validar nome: aceitar se tiver pelo menos 1 caractere e não for providerId, fallback, ou email
-			const isValidName = processedName && 
-				processedName.length >= 1 && 
-				processedName !== providerId && 
+			const isValidName = processedName &&
+				processedName.length >= 1 &&
+				processedName !== providerId &&
 				processedName !== "Usuário Apple" &&
 				processedName !== "Usuário" &&
 				processedName.toLowerCase() !== "null" &&
@@ -65,7 +65,7 @@ export async function POST(req: NextRequest) {
 				!processedName.includes("@") && // Garantir que não é um email
 				processedName !== processedEmail && // Garantir que não é igual ao email
 				processedName.toLowerCase() !== processedEmail.toLowerCase(); // Case-insensitive
-			
+
 			if (!isValidName) {
 				return NextResponse.json(
 					{ error: "Por favor, informe seu nome" },
@@ -75,7 +75,7 @@ export async function POST(req: NextRequest) {
 		}
 
 		// Normalizar valores - usar valores processados para Apple
-		const normalizedEmail = provider === "apple" 
+		const normalizedEmail = provider === "apple"
 			? processedEmail
 			: (email || `${providerId}@oauth.temp`);
 		const normalizedName = provider === "apple"
@@ -97,7 +97,7 @@ export async function POST(req: NextRequest) {
 		if (provider === "google") {
 			// Priorizar idToken (mobile) sobre accessToken (web)
 			const tokenToValidate = idToken || accessToken;
-			
+
 			if (tokenToValidate) {
 				const validated = await validateGoogleToken(tokenToValidate);
 				if (!validated || validated.id !== providerId) {
