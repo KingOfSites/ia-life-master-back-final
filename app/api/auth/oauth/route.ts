@@ -48,20 +48,23 @@ export async function POST(req: NextRequest) {
 			// Tratar null, undefined, string vazia, ou valores inválidos
 			if (name != null && name !== undefined && name !== "") {
 				processedName = String(name).trim();
-				// Rejeitar se for "null", "undefined" ou string vazia após trim
-				if (processedName === "null" || processedName === "undefined" || processedName === "") {
+				// Rejeitar se for "null", "undefined", string vazia após trim, ou se for um email
+				if (processedName === "null" || processedName === "undefined" || processedName === "" || processedName.includes("@")) {
 					processedName = "";
 				}
 			}
 			
-			// Validar nome: aceitar se tiver pelo menos 1 caractere e não for providerId ou fallback
+			// Validar nome: aceitar se tiver pelo menos 1 caractere e não for providerId, fallback, ou email
 			const isValidName = processedName && 
 				processedName.length >= 1 && 
 				processedName !== providerId && 
 				processedName !== "Usuário Apple" &&
 				processedName !== "Usuário" &&
 				processedName.toLowerCase() !== "null" &&
-				processedName.toLowerCase() !== "undefined";
+				processedName.toLowerCase() !== "undefined" &&
+				!processedName.includes("@") && // Garantir que não é um email
+				processedName !== processedEmail && // Garantir que não é igual ao email
+				processedName.toLowerCase() !== processedEmail.toLowerCase(); // Case-insensitive
 			
 			if (!isValidName) {
 				return NextResponse.json(
@@ -86,8 +89,8 @@ export async function POST(req: NextRequest) {
 			);
 		}
 
-		// Usar valores normalizados
-		const finalEmail = normalizedEmail;
+		// Usar valores normalizados (permitir atualização se necessário)
+		let finalEmail = normalizedEmail;
 		const finalName = normalizedName;
 
 		// Validar tokens do Google
@@ -129,11 +132,13 @@ export async function POST(req: NextRequest) {
 						{ status: 401 }
 					);
 				}
-				// Se o email não foi fornecido, usar o do token (se disponível)
-				if (validated.email && !finalEmail.includes("@privaterelay.appleid.com")) {
-					// Apple pode não fornecer email em logins subsequentes
-					// Se o email do token for válido, usar ele
-					// Nota: validated.email pode ser usado aqui se necessário
+				// Se o email enviado for Private Relay e o token tiver email real, usar o do token
+				if (validated.email && finalEmail.includes("@privaterelay.appleid.com")) {
+					// Usar o email real do token da Apple ao invés do Private Relay
+					finalEmail = validated.email;
+				} else if (validated.email && (!finalEmail || finalEmail === "")) {
+					// Se não foi enviado email mas o token tem, usar o do token
+					finalEmail = validated.email;
 				}
 			} else {
 				// Em desenvolvimento, permitir sem token (mas logar aviso)
@@ -165,8 +170,9 @@ export async function POST(req: NextRequest) {
 
 			// Para Apple: só atualizar nome se o usuário NÃO tem nome E o nome veio agora
 			if (provider === "apple") {
-				if (!user.name && name && name.trim() && name !== "Usuário Apple" && name !== providerId) {
-					updateData.name = name.trim();
+				// Usar processedName que já foi validado
+				if (!user.name && processedName && processedName.trim() && processedName !== "Usuário Apple" && processedName !== providerId) {
+					updateData.name = processedName.trim();
 				}
 				// Se já tem nome, não tocar (Apple não envia mais)
 			} else {
@@ -197,8 +203,9 @@ export async function POST(req: NextRequest) {
 
 					// REGRA APPLE: Só atualizar nome se o usuário NÃO tem nome E o nome veio agora
 					if (provider === "apple") {
-						if (!existingByEmail.name && name && name.trim() && name !== "Usuário Apple" && name !== providerId) {
-							updateData.name = name.trim();
+						// Usar processedName que já foi validado
+						if (!existingByEmail.name && processedName && processedName.trim() && processedName !== "Usuário Apple" && processedName !== providerId) {
+							updateData.name = processedName.trim();
 						} else {
 							// Manter o nome existente
 							updateData.name = existingByEmail.name;
@@ -224,8 +231,9 @@ export async function POST(req: NextRequest) {
 				// Para Apple: garantir que o nome não seja o providerId
 				let userName: string;
 				if (provider === "apple") {
-					if (name && name.trim() && name !== "Usuário Apple" && name !== providerId) {
-						userName = name.trim();
+					// Usar processedName que já foi validado
+					if (processedName && processedName.trim() && processedName !== "Usuário Apple" && processedName !== providerId) {
+						userName = processedName.trim();
 					} else {
 						userName = "Usuário"; // Fallback seguro
 					}
