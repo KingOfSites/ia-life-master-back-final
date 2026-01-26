@@ -24,7 +24,7 @@ export async function POST(req: NextRequest) {
 
 		// Validação mínima - apenas provider e providerId são realmente obrigatórios
 		if (!provider || !providerId) {
-			return NextResponse.json(
+			return NextResponse.json(   
 				{ error: "Provider e providerId são obrigatórios" },
 				{ status: 400 }
 			);
