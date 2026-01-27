@@ -277,9 +277,17 @@ export async function POST(req: NextRequest) {
 			},
 		});
 	} catch (error: any) {
-		console.error("[OAUTH] Erro:", error);
+		console.error("[OAUTH] Erro completo:", {
+			message: error.message,
+			stack: error.stack,
+			name: error.name,
+			body: error.body,
+		});
 		return NextResponse.json(
-			{ error: error.message || "Erro ao autenticar" },
+			{ 
+				error: error.message || "Erro ao autenticar",
+				details: process.env.NODE_ENV === "development" ? error.stack : undefined
+			},
 			{ status: 500 }
 		);
 	}
