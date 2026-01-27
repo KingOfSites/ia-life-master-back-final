@@ -619,8 +619,56 @@ const buildWorkouts = (onboarding: OnboardingData | null | undefined, workoutsPe
   const focusBase = ["Força", "Cardio", "Mobilidade"];
   const schedule: Array<{ title: string; focus?: string; startTime: string; endTime: string; intensity?: string }> = [];
 
-  const timePreference =
-    onboarding?.experience === "iniciante" ? { start: "07:30", end: "08:10" } : { start: "18:30", end: "19:15" };
+  // Definir horários base baseado na experiência
+  // Verificar tanto em português quanto em inglês
+  const experience = String(onboarding?.experience || "").toLowerCase();
+  const isBeginnerExperience = ["iniciante", "beginner", "nunca", "never"].some((exp) => experience.includes(exp));
+  const baseTimePreference = isBeginnerExperience 
+    ? { start: "07:30", end: "08:10" } 
+    : { start: "18:30", end: "19:15" };
+
+  // Função para distribuir horários ao longo do dia quando há múltiplos treinos
+  const getWorkoutTime = (index: number, total: number) => {
+    if (total === 1) {
+      // Se há apenas 1 treino, usar o horário base
+      return { start: baseTimePreference.start, end: baseTimePreference.end };
+    }
+
+    // Distribuir treinos ao longo do dia
+    // Para iniciantes: manhã (06:00 - 12:00)
+    // Para outros: tarde/noite (14:00 - 21:00)
+    const isBeginner = isBeginnerExperience;
+    
+    if (isBeginner) {
+      // Manhã: 06:00, 08:00, 10:00, 12:00
+      const morningSlots = ["06:00", "08:00", "10:00", "12:00"];
+      const startTime = morningSlots[index % morningSlots.length];
+      const [hours, minutes] = startTime.split(":").map(Number);
+      const duration = 40; // 40 minutos de duração
+      let endHours = hours;
+      let endMinutes = minutes + duration;
+      if (endMinutes >= 60) {
+        endHours += Math.floor(endMinutes / 60);
+        endMinutes = endMinutes % 60;
+      }
+      const endTime = `${endHours.toString().padStart(2, "0")}:${endMinutes.toString().padStart(2, "0")}`;
+      return { start: startTime, end: endTime };
+    } else {
+      // Tarde/Noite: 14:00, 16:00, 18:00, 20:00
+      const afternoonSlots = ["14:00", "16:00", "18:00", "20:00"];
+      const startTime = afternoonSlots[index % afternoonSlots.length];
+      const [hours, minutes] = startTime.split(":").map(Number);
+      const duration = 45; // 45 minutos de duração
+      let endHours = hours;
+      let endMinutes = minutes + duration;
+      if (endMinutes >= 60) {
+        endHours += Math.floor(endMinutes / 60);
+        endMinutes = endMinutes % 60;
+      }
+      const endTime = `${endHours.toString().padStart(2, "0")}:${endMinutes.toString().padStart(2, "0")}`;
+      return { start: startTime, end: endTime };
+    }
+  };
 
   const intensityLabel = (() => {
     const a = String(onboarding?.activityLevel || "").toLowerCase();
@@ -1118,11 +1166,13 @@ const buildWorkouts = (onboarding: OnboardingData | null | undefined, workoutsPe
     // Usar variationSeed + índice com offset maior para garantir diferentes variações para cada treino
     // Multiplicar por um número maior para garantir mais variação entre treinos
     const workoutSeed = (variationSeed * 3 + i * 5) % 100;
+    // Obter horário distribuído para este treino específico
+    const workoutTime = getWorkoutTime(i, workoutsCount);
     schedule.push({
       title: `Treino de ${focus.toLowerCase()}`,
       focus: workoutDetails(focus, workoutSeed),
-      startTime: timePreference.start,
-      endTime: timePreference.end,
+      startTime: workoutTime.start,
+      endTime: workoutTime.end,
       intensity: intensityLabel,
     });
   }

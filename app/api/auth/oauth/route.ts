@@ -264,8 +264,9 @@ export async function POST(req: NextRequest) {
 			);
 		}
 
+		// Token com expiração de 1 ano para manter usuário logado permanentemente
 		const token = jwt.sign({ userId: user.id }, secret, {
-			expiresIn: "7d",
+			expiresIn: "365d",
 		});
 
 		return NextResponse.json({

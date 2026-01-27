@@ -393,8 +393,17 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    console.log("[NUTRITION] Recebendo requisição POST");
     const formData = await req.formData();
     const file = formData.get("image");
+    console.log("[NUTRITION] Arquivo recebido:", {
+      hasFile: !!file,
+      isFile: file instanceof File,
+      fileName: file instanceof File ? file.name : null,
+      fileSize: file instanceof File ? file.size : null,
+      fileType: file instanceof File ? file.type : null
+    });
+    
     const forcedCaloriesRaw = formData.get("forced_calories") ?? formData.get("forcedCalories");
     const totalWeightRaw = formData.get("total_weight_g") ?? formData.get("totalWeightG");
 
@@ -409,30 +418,129 @@ export async function POST(req: NextRequest) {
         : null;
 
     if (!file || !(file instanceof File)) {
+      console.error("[NUTRITION] Erro: Nenhuma imagem enviada ou arquivo inválido");
       return NextResponse.json(
         { error: "Nenhuma imagem enviada no campo 'image'." },
         { status: 400 }
       );
     }
 
+    console.log("[NUTRITION] Processando imagem...");
     const arrayBuffer = await file.arrayBuffer();
     const buf = Buffer.from(arrayBuffer);
     const base64 = buf.toString("base64");
     const mimeType = file.type || "image/jpeg";
+    console.log("[NUTRITION] Imagem processada:", {
+      bufferSize: buf.length,
+      mimeType,
+      base64Length: base64.length
+    });
 
     // Persistência da imagem (para o usuário conseguir ver depois)
-    const origin = new URL(req.url).origin;
+    // Em desenvolvimento, sempre usar req.url.origin para gerar URLs corretas
+    // Em produção, usar variáveis de ambiente
+    const isDevelopment = process.env.NODE_ENV === "development" || !process.env.VERCEL;
+    let origin: string;
+    
+    if (isDevelopment) {
+      // Em desenvolvimento, usar o origin da requisição (localhost:3000 ou IP da rede)
+      origin = new URL(req.url).origin;
+      console.log("[NUTRITION] Desenvolvimento: usando origin da requisição:", origin);
+    } else {
+      // Em produção, usar variáveis de ambiente
+      const baseUrl = process.env.EXPO_PUBLIC_API_URL || process.env.NEXT_PUBLIC_API_URL || process.env.NEXTAUTH_URL;
+      if (baseUrl) {
+        // Remover /api do final se existir
+        origin = baseUrl.replace(/\/api\/?$/, "");
+        console.log("[NUTRITION] Produção: usando variável de ambiente:", origin);
+      } else {
+        origin = new URL(req.url).origin;
+        console.log("[NUTRITION] Produção: fallback para origin da requisição:", origin);
+      }
+    }
+    
+    console.log("[NUTRITION] Gerando hash e salvando imagem...");
     const imgHash = crypto.createHash("sha256").update(buf).digest("hex");
     const imageId = imgHash.slice(0, 24);
     const ext = extFromMime(mimeType);
     const uploadsDir = path.join(process.cwd(), "public", "uploads", "nutrition");
+    console.log("[NUTRITION] Criando diretório se não existir:", uploadsDir);
     await ensureDir(uploadsDir);
     const fileName = `${imageId}.${ext}`;
     const absPath = path.join(uploadsDir, fileName);
-    if (!(await fileExists(absPath))) {
+    
+    console.log("[NUTRITION] Salvando arquivo:", {
+      fileName,
+      absPath,
+      uploadsDir,
+      fileSize: buf.length
+    });
+    
+    // Sempre salvar a imagem (mesmo se já existir, para garantir que está lá)
+    try {
       await writeFile(absPath, buf);
+      console.log("[NUTRITION] Arquivo salvo com sucesso:", {
+        fileName,
+        absPath,
+        fileSize: buf.length
+      });
+      
+      // Verificar imediatamente se o arquivo foi salvo
+      const fileExistsAfter = await fileExists(absPath);
+      if (!fileExistsAfter) {
+        console.error("[NUTRITION] ERRO CRÍTICO: Arquivo não existe após salvamento!", {
+          fileName,
+          absPath,
+          uploadsDir
+        });
+        // Tentar salvar novamente
+        await writeFile(absPath, buf);
+        const retryExists = await fileExists(absPath);
+        console.log("[NUTRITION] Retry salvamento:", {
+          fileName,
+          retryExists
+        });
+      } else {
+        console.log("[NUTRITION] Verificação pós-salvamento: OK", {
+          fileExists: fileExistsAfter,
+          absPath
+        });
+      }
+    } catch (writeError: any) {
+      console.error("[NUTRITION] Erro ao salvar arquivo:", {
+        error: writeError,
+        message: writeError?.message,
+        stack: writeError?.stack,
+        fileName,
+        absPath,
+        uploadsDir
+      });
+      throw writeError;
     }
-    const imageUrl = `${origin}/uploads/nutrition/${fileName}`;
+    
+    // Garantir que a URL não tenha // duplicado
+    const cleanOrigin = origin.replace(/\/+$/, ""); // Remove trailing slashes
+    // Usar /api/uploads/nutrition/ para garantir que a rota API seja chamada
+    const imageUrl = `${cleanOrigin}/api/uploads/nutrition/${fileName}`;
+    
+    console.log("[NUTRITION] Image URL generated:", {
+      imageUrl,
+      origin,
+      cleanOrigin,
+      fileName,
+      absPath,
+      uploadsDir,
+      fileExists: fileExistsAfter,
+      fileSize: buf.length,
+      imageId,
+      env: {
+        EXPO_PUBLIC_API_URL: process.env.EXPO_PUBLIC_API_URL,
+        NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL,
+        NEXTAUTH_URL: process.env.NEXTAUTH_URL,
+        NODE_ENV: process.env.NODE_ENV,
+        VERCEL: process.env.VERCEL
+      }
+    });
 
     // Cache não considera userId/feedback para permitir personalização
     // Mas ainda usa cache para mesma imagem + parâmetros
@@ -450,6 +558,13 @@ export async function POST(req: NextRequest) {
     const cached = !hasPersonalizedFeedback ? getCache(cacheKey) : null;
     if (cached) {
       // garante que a URL da imagem exista no payload
+      console.log("[NUTRITION] Retornando resposta do cache com imageUrl:", {
+        imageUrl,
+        imageId,
+        cachedImageUrl: cached.imageUrl,
+        cachedImageId: cached.imageId,
+        foodsCount: cached.foods?.length || 0
+      });
       return NextResponse.json({ ...cached, imageId, imageUrl });
     }
 
@@ -494,8 +609,8 @@ Formato obrigatório:
     const systemPrompt = basePrompt + feedbackInstructions;
 
     const completion = await openai().chat.completions.create({
-      model: "gpt-4o-mini",
-      temperature: 0.0,
+      model: "gpt-4o",
+      temperature: 0.5, // Aumentado de 0.0 para 0.3 para evitar sempre a mesma resposta
       max_tokens: wantsWeightsFlow ? 900 : 650,
       response_format: { type: "json_object" },
       messages: [
@@ -578,6 +693,11 @@ IMPORTANTE:
         imageId,
         imageUrl,
       };
+      console.log("[NUTRITION] Retornando resposta (totals) com imageUrl:", {
+        imageUrl,
+        imageId,
+        foodsCount: sanitizedTotals.foods.length
+      });
       setCache(cacheKey, sanitizedTotals);
       return NextResponse.json(sanitizedTotals);
     }
@@ -611,7 +731,11 @@ IMPORTANTE:
         imageId,
         imageUrl,
       };
-
+      console.log("[NUTRITION] Retornando resposta (old format) com imageUrl:", {
+        imageUrl,
+        imageId,
+        foodsCount: sanitizedOld.foods.length
+      });
       setCache(cacheKey, sanitizedOld);
       return NextResponse.json(sanitizedOld);
     }
@@ -683,6 +807,12 @@ IMPORTANTE:
       imageUrl,
     };
 
+    console.log("[NUTRITION] Retornando resposta com imageUrl:", {
+      imageUrl,
+      imageId,
+      foodsCount: sanitized.foods.length
+    });
+    
     setCache(cacheKey, sanitized);
     return NextResponse.json(sanitized);
   } catch (error) {

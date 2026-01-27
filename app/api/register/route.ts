@@ -26,9 +26,11 @@ export async function POST(req: Request) {
 			);
 		}
 
+		// Normalizar email (trim e lowercase)
+		const trimmedEmail = email.trim().toLowerCase();
+
 		// Validar formato de email básico
 		const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-		const trimmedEmail = email.trim().toLowerCase();
 		if (!emailRegex.test(trimmedEmail)) {
 			return NextResponse.json(
 				{ error: "Por favor, insira um e-mail válido" },
@@ -73,8 +75,9 @@ export async function POST(req: Request) {
 			},
 		});
 
+		// Token com expiração de 1 ano para manter usuário logado permanentemente
 		const token = jwt.sign({ userId: user.id }, secret, {
-			expiresIn: "7d",
+			expiresIn: "365d",
 		});
 
 		return NextResponse.json({

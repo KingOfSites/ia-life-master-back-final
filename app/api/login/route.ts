@@ -16,8 +16,11 @@ export async function POST(req: Request) {
       )
     }
 
+    // Normalizar email (trim e lowercase)
+    const trimmedEmail = email.trim().toLowerCase();
+
     const user = await prisma.user.findUnique({
-      where: { email },
+      where: { email: trimmedEmail },
     })
 
     if (!user) {
@@ -52,10 +55,11 @@ export async function POST(req: Request) {
       )
     }
 
+    // Token com expiração de 1 ano para manter usuário logado permanentemente
     const token = jwt.sign(
       { userId: user.id },
       secret,
-      { expiresIn: "7d" }
+      { expiresIn: "365d" }
     )
 
     return NextResponse.json({
