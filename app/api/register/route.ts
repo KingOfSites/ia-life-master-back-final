@@ -28,9 +28,10 @@ export async function POST(req: Request) {
 
 		// Validar formato de email básico
 		const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-		if (!emailRegex.test(email)) {
+		const trimmedEmail = email.trim().toLowerCase();
+		if (!emailRegex.test(trimmedEmail)) {
 			return NextResponse.json(
-				{ error: "Email inválido" },
+				{ error: "Por favor, insira um e-mail válido" },
 				{ status: 400 },
 			);
 		}
@@ -44,12 +45,12 @@ export async function POST(req: Request) {
 		}
 
 		const existing = await prisma.user.findUnique({
-			where: { email },
+			where: { email: trimmedEmail },
 		});
 
 		if (existing) {
 			return NextResponse.json(
-				{ error: "E-mail já cadastrado" },
+				{ error: "Este e-mail já está cadastrado. Tente fazer login ou use outro e-mail." },
 				{ status: 409 },
 			);
 		}
@@ -67,7 +68,7 @@ export async function POST(req: Request) {
 		const user = await prisma.user.create({
 			data: {
 				name: name.trim(),
-				email,
+				email: trimmedEmail,
 				password: hashed,
 			},
 		});
