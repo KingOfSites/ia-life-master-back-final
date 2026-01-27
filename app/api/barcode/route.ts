@@ -1,3 +1,5 @@
+import { storage } from "@/lib/firebase-admin";
+import crypto from "crypto";
 import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
@@ -28,10 +30,30 @@ type OffProduct = {
     quantity?: string;
     product_quantity?: number;
     product_quantity_unit?: string;
-    nutriments?: Record<string, any>;
+    nutriments?: Record<string, number>;
   };
   status?: number;
   status_verbose?: string;
+};
+
+type ServingParsed = {
+  unit: string;
+  quantity: number;
+};
+
+type BarcodeResponse = {
+  name: string;
+  calories: number | null;
+  protein: number | null;
+  carbs: number | null;
+  fat: number | null;
+  servingSize: string;
+  servingParsed: ServingParsed;
+  basis: "serving" | "per100";
+  perServing: { calories: number | null; protein: number | null; carbs: number | null; fat: number | null } | null;
+  per100: { calories: number | null; protein: number | null; carbs: number | null; fat: number | null };
+  imageUrl?: string;
+  imageId?: string;
 };
 
 const parseServing = (servingSize?: string | null) => {
@@ -77,7 +99,14 @@ const parseServing = (servingSize?: string | null) => {
   return { unit: "g", quantity: qty };
 };
 
-const pickPer100CaloriesKcal = (nutr: Record<string, any>, preferMl: boolean) => {
+const extFromMime = (mime: string) => {
+  const m = String(mime || "").toLowerCase();
+  if (m.includes("png")) return "png";
+  if (m.includes("webp")) return "webp";
+  return "jpg";
+};
+
+const pickPer100CaloriesKcal = (nutr: Record<string, number>, preferMl: boolean) => {
   const kcal = preferMl ? nutr["energy-kcal_100ml"] ?? nutr["energy-kcal_100g"] : nutr["energy-kcal_100g"] ?? nutr["energy-kcal_100ml"];
   if (kcal != null && !Number.isNaN(Number(kcal))) return Number(kcal);
 
@@ -92,7 +121,7 @@ const pickPer100CaloriesKcal = (nutr: Record<string, any>, preferMl: boolean) =>
   return null;
 };
 
-const pickServingCaloriesKcal = (nutr: Record<string, any>) => {
+const pickServingCaloriesKcal = (nutr: Record<string, number>) => {
   const kcal = nutr["energy-kcal_serving"];
   if (kcal != null && !Number.isNaN(Number(kcal))) return Number(kcal);
 
@@ -104,7 +133,7 @@ const pickServingCaloriesKcal = (nutr: Record<string, any>) => {
   return null;
 };
 
-const mapOffToNutrition = (data: OffProduct, barcode: string) => {
+const mapOffToNutrition = (data: OffProduct, barcode: string): BarcodeResponse => {
   const product = data.product ?? {};
   const nutr = product.nutriments ?? {};
 
@@ -170,16 +199,14 @@ const mapOffToNutrition = (data: OffProduct, barcode: string) => {
       ? Math.round(Number(per100Fat) * factor)
       : null;
 
-  const mapped: any = {
-    source: "barcode",
-    barcode,
-    name: product.product_name || "Produto sem nome",
+  const mapped: BarcodeResponse = {
+    name: product.product_name ?? "Produto sem nome",
     servingSize,
     servingParsed,
-    calories,
-    protein,
-    carbs,
-    fat,
+    calories: calories ?? null,
+    protein: protein ?? null,
+    carbs: carbs ?? null,
+    fat: fat ?? null,
     basis: hasServing ? "serving" : "per100",
     perServing: hasServing
       ? {
@@ -195,7 +222,6 @@ const mapOffToNutrition = (data: OffProduct, barcode: string) => {
       carbs: per100Carbs ?? null,
       fat: per100Fat ?? null,
     },
-    raw: product,
   };
 
   // Aplica override se existir e bater com o contexto (nome + porção)
@@ -225,12 +251,99 @@ const mapOffToNutrition = (data: OffProduct, barcode: string) => {
           fat: Math.round(ov.perServing.fat * factor100 * 10) / 10,
         };
       }
-      mapped.override = { applied: true, reason: "barcode_override" };
     }
   }
 
   return mapped;
 };
+
+const uploadBarcodeImage = async (imageFile: File) => {
+  const arrayBuffer = await imageFile.arrayBuffer();
+  const buf = Buffer.from(arrayBuffer);
+  const mimeType = imageFile.type || "image/jpeg";
+  const imgHash = crypto.createHash("sha256").update(buf).digest("hex");
+  const imageId = imgHash.slice(0, 24);
+  const ext = extFromMime(mimeType);
+  const fileName = `${imageId}.${ext}`;
+  const objectPath = `uploads/barcode/${fileName}`;
+  const bucket = storage.bucket();
+  const storageFile = bucket.file(objectPath);
+
+  await storageFile.save(buf, {
+    resumable: false,
+    contentType: mimeType,
+    metadata: {
+      cacheControl: "public, max-age=31536000, immutable",
+    },
+  });
+
+  let imageUrl: string;
+  try {
+    await storageFile.makePublic();
+    imageUrl = storageFile.publicUrl();
+  } catch {
+    const [signedUrl] = await storageFile.getSignedUrl({
+      action: "read",
+      expires: Date.now() + 1000 * 60 * 60 * 24 * 365,
+    });
+    imageUrl = signedUrl;
+  }
+
+  return { imageId, imageUrl };
+};
+
+const fetchOffProduct = async (code: string) => {
+  const resp = await fetch(`https://world.openfoodfacts.org/api/v0/product/${code}.json`, {
+    cache: "no-store",
+  });
+
+  if (!resp.ok) {
+    const txt = await resp.text();
+    return { error: NextResponse.json({ error: "Falha ao consultar Open Food Facts", details: txt }, { status: 502 }) };
+  }
+
+  const data = (await resp.json()) as OffProduct;
+  if (data.status !== 1 || !data.product) {
+    return {
+      error: NextResponse.json(
+        { error: "Produto não encontrado no Open Food Facts", status: data.status, status_verbose: data.status_verbose },
+        { status: 404 },
+      ),
+    };
+  }
+
+  return { data };
+};
+
+export async function POST(req: Request) {
+  const formData = await req.formData();
+  console.log("[BARCODE] Requisição recebida:", { formData });
+  const code = formData.get("code");
+  const imageFile = formData.get("image");
+
+  if (!code || typeof code !== "string") {
+    return NextResponse.json({ error: "Informe code no form-data" }, { status: 400 });
+  }
+
+  const off = await fetchOffProduct(code);
+  if (off.error) return off.error;
+
+  const mapped = mapOffToNutrition(off.data as OffProduct, code);
+
+  if (imageFile instanceof File) {
+    try {
+      const { imageId, imageUrl } = await uploadBarcodeImage(imageFile);
+      return NextResponse.json({ ...mapped, imageId, imageUrl });
+    } catch (err: unknown) {
+      return NextResponse.json(
+        { error: "Erro ao salvar imagem no Firebase", details: err instanceof Error ? err.message : undefined },
+        { status: 500 },
+      );
+    }
+  }
+
+  return NextResponse.json(mapped);
+}
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
@@ -241,30 +354,15 @@ export async function GET(req: Request) {
   }
 
   try {
-    const resp = await fetch(`https://world.openfoodfacts.org/api/v0/product/${code}.json`, {
-      cache: "no-store",
-    });
+    const off = await fetchOffProduct(code);
+    if (off.error) return off.error;
 
-    if (!resp.ok) {
-      const txt = await resp.text();
-      return NextResponse.json({ error: "Falha ao consultar Open Food Facts", details: txt }, { status: 502 });
-    }
-
-    const data = (await resp.json()) as OffProduct;
-    if (data.status !== 1 || !data.product) {
-      return NextResponse.json(
-        { error: "Produto não encontrado no Open Food Facts", status: data.status, status_verbose: data.status_verbose },
-        { status: 404 },
-      );
-    }
-
-    const mapped = mapOffToNutrition(data, code);
+    const mapped = mapOffToNutrition(off.data as OffProduct, code);
     return NextResponse.json(mapped);
-  } catch (err: any) {
+  } catch (err: unknown) {
     return NextResponse.json(
-      { error: "Erro ao consultar Open Food Facts", details: err?.message },
+      { error: "Erro ao consultar Open Food Facts", details: err instanceof Error ? err.message : undefined },
       { status: 500 },
     );
   }
 }
-
