@@ -1,13 +1,15 @@
-import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import jwt from "jsonwebtoken"
 import bcrypt from "bcryptjs"
+import jwt from "jsonwebtoken"
+import { NextResponse } from "next/server"
 
 export const runtime = "nodejs"
 
 export async function POST(req: Request) {
   try {
     const { email, password } = await req.json()
+
+    console.log("[LOGIN] Requisição recebida:", { email, password });
 
     if (!email || !password) {
       return NextResponse.json(
@@ -69,16 +71,16 @@ export async function POST(req: Request) {
         email: user.email,
       },
     })
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("[LOGIN] Erro completo:", {
-      message: error.message,
-      stack: error.stack,
-      name: error.name,
+      message: error instanceof Error ? error.message : undefined,
+      stack: error instanceof Error ? error.stack : undefined,
+      name: error instanceof Error ? error.name : undefined,
     });
     return NextResponse.json(
       {
-        error: error.message || "Erro ao fazer login",
-        details: process.env.NODE_ENV === "development" ? error.stack : undefined,
+        error: error instanceof Error ? error.message : "Erro ao fazer login",
+        details: process.env.NODE_ENV === "development" ? error instanceof Error ? error.stack : undefined : undefined,
       },
       { status: 500 }
     );

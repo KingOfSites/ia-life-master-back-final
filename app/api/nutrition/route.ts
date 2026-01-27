@@ -1,11 +1,10 @@
+import { storage } from "@/lib/firebase-admin";
 import { openai } from "@/lib/openai";
-import { NextRequest, NextResponse } from "next/server";
-import crypto from "crypto";
-import { nutritionPrompt } from "./prompt";
-import path from "path";
-import { mkdir, writeFile, access } from "fs/promises";
 import { PrismaClient } from "@prisma/client";
+import crypto from "crypto";
 import jwt from "jsonwebtoken";
+import { NextRequest, NextResponse } from "next/server";
+import { nutritionPrompt } from "./prompt";
 
 const prisma = new PrismaClient();
 const JWT_SECRET = process.env.JWT_SECRET || "supersecret";
@@ -102,23 +101,6 @@ const setCache = (key: string, payload: NutritionResponse) => {
   memoryCache.set(key, { expiresAt: Date.now() + CACHE_TTL_MS, payload });
 };
 
-const ensureDir = async (dirPath: string) => {
-  try {
-    await mkdir(dirPath, { recursive: true });
-  } catch {
-    // ignore
-  }
-};
-
-const fileExists = async (filePath: string) => {
-  try {
-    await access(filePath);
-    return true;
-  } catch {
-    return false;
-  }
-};
-
 const extFromMime = (mime: string) => {
   const m = String(mime || "").toLowerCase();
   if (m.includes("png")) return "png";
@@ -150,13 +132,13 @@ const extractJSON = (text: string) => {
   return match[0];
 };
 
-const round0 = (v: any) => Math.round(Number(v ?? 0));
-const num0 = (v: any) => {
+const round0 = (v: number | undefined | null) => Math.round(Number(v ?? 0));
+const num0 = (v: number | undefined | null) => {
   const n = Number(v);
   return Number.isFinite(n) ? n : 0;
 };
 
-const sanitizeTotalsFood = (f: any, idx: number): FoodItem => {
+const sanitizeTotalsFood = (f: FoodItemAI, idx: number): FoodItem => {
   const nutrition = f?.nutrition ?? {};
   return {
     food_id: String(f?.food_id || `food-${idx + 1}`),
@@ -231,7 +213,7 @@ const adjustWeightsToTargetCalories = (options: {
   if (currentTotal <= 0) return { weights: safeWeights, factor: 1, currentTotal, finalTotal: currentTotal };
 
   const factor = targetCalories / currentTotal;
-  let adjusted = safeWeights.map((w) => Math.max(1, Math.round(w * factor)));
+  const adjusted = safeWeights.map((w) => Math.max(1, Math.round(w * factor)));
 
   // Correção fina: ajusta o item com maior densidade calórica para bater o alvo
   let finalTotal = calcTotalCalories(adjusted);
@@ -395,13 +377,13 @@ export async function POST(req: NextRequest) {
 
     console.log("[NUTRITION] Recebendo requisição POST");
     const formData = await req.formData();
-    const file = formData.get("image");
+    const imageFile = formData.get("image");
     console.log("[NUTRITION] Arquivo recebido:", {
-      hasFile: !!file,
-      isFile: file instanceof File,
-      fileName: file instanceof File ? file.name : null,
-      fileSize: file instanceof File ? file.size : null,
-      fileType: file instanceof File ? file.type : null
+      hasFile: !!imageFile,
+      isFile: imageFile instanceof File,
+      fileName: imageFile instanceof File ? imageFile.name : null,
+      fileSize: imageFile instanceof File ? imageFile.size : null,
+      fileType: imageFile instanceof File ? imageFile.type : null
     });
     
     const forcedCaloriesRaw = formData.get("forced_calories") ?? formData.get("forcedCalories");
@@ -417,7 +399,7 @@ export async function POST(req: NextRequest) {
         ? Math.max(0, Math.round(Number(totalWeightRaw)))
         : null;
 
-    if (!file || !(file instanceof File)) {
+    if (!imageFile || !(imageFile instanceof File)) {
       console.error("[NUTRITION] Erro: Nenhuma imagem enviada ou arquivo inválido");
       return NextResponse.json(
         { error: "Nenhuma imagem enviada no campo 'image'." },
@@ -426,111 +408,83 @@ export async function POST(req: NextRequest) {
     }
 
     console.log("[NUTRITION] Processando imagem...");
-    const arrayBuffer = await file.arrayBuffer();
+    const arrayBuffer = await imageFile.arrayBuffer();
     const buf = Buffer.from(arrayBuffer);
     const base64 = buf.toString("base64");
-    const mimeType = file.type || "image/jpeg";
+    const mimeType = imageFile.type || "image/jpeg";
     console.log("[NUTRITION] Imagem processada:", {
       bufferSize: buf.length,
       mimeType,
       base64Length: base64.length
     });
 
-    // Persistência da imagem (para o usuário conseguir ver depois)
-    // Em desenvolvimento, sempre usar req.url.origin para gerar URLs corretas
-    // Em produção, usar variáveis de ambiente
-    const isDevelopment = process.env.NODE_ENV === "development" || !process.env.VERCEL;
-    let origin: string;
-    
-    if (isDevelopment) {
-      // Em desenvolvimento, usar o origin da requisição (localhost:3000 ou IP da rede)
-      origin = new URL(req.url).origin;
-      console.log("[NUTRITION] Desenvolvimento: usando origin da requisição:", origin);
-    } else {
-      // Em produção, usar variáveis de ambiente
-      const baseUrl = process.env.EXPO_PUBLIC_API_URL || process.env.NEXT_PUBLIC_API_URL || process.env.NEXTAUTH_URL;
-      if (baseUrl) {
-        // Remover /api do final se existir
-        origin = baseUrl.replace(/\/api\/?$/, "");
-        console.log("[NUTRITION] Produção: usando variável de ambiente:", origin);
-      } else {
-        origin = new URL(req.url).origin;
-        console.log("[NUTRITION] Produção: fallback para origin da requisição:", origin);
-      }
-    }
-    
     console.log("[NUTRITION] Gerando hash e salvando imagem...");
     const imgHash = crypto.createHash("sha256").update(buf).digest("hex");
     const imageId = imgHash.slice(0, 24);
     const ext = extFromMime(mimeType);
-    const uploadsDir = path.join(process.cwd(), "public", "uploads", "nutrition");
-    console.log("[NUTRITION] Criando diretório se não existir:", uploadsDir);
-    await ensureDir(uploadsDir);
     const fileName = `${imageId}.${ext}`;
-    const absPath = path.join(uploadsDir, fileName);
+    const objectPath = `uploads/nutrition/${fileName}`;
+    const bucket = storage.bucket();
+    const storageFile = bucket.file(objectPath);
     
-    console.log("[NUTRITION] Salvando arquivo:", {
+    console.log("[NUTRITION] Salvando arquivo no Firebase Storage:", {
       fileName,
-      absPath,
-      uploadsDir,
+      objectPath,
+      bucket: bucket.name,
       fileSize: buf.length
     });
     
     // Sempre salvar a imagem (mesmo se já existir, para garantir que está lá)
     try {
-      await writeFile(absPath, buf);
-      console.log("[NUTRITION] Arquivo salvo com sucesso:", {
+      await storageFile.save(buf, {
+        resumable: false,
+        contentType: mimeType,
+        metadata: {
+          cacheControl: "public, max-age=31536000, immutable",
+        },
+      });
+      console.log("[NUTRITION] Arquivo salvo com sucesso no Firebase Storage:", {
         fileName,
-        absPath,
-        fileSize: buf.length
+        objectPath,
+        fileSize: buf.length,
+        bucket: bucket.name
       });
       
-      // Verificar imediatamente se o arquivo foi salvo
-      const fileExistsAfter = await fileExists(absPath);
-      if (!fileExistsAfter) {
-        console.error("[NUTRITION] ERRO CRÍTICO: Arquivo não existe após salvamento!", {
-          fileName,
-          absPath,
-          uploadsDir
-        });
-        // Tentar salvar novamente
-        await writeFile(absPath, buf);
-        const retryExists = await fileExists(absPath);
-        console.log("[NUTRITION] Retry salvamento:", {
-          fileName,
-          retryExists
-        });
-      } else {
-        console.log("[NUTRITION] Verificação pós-salvamento: OK", {
-          fileExists: fileExistsAfter,
-          absPath
-        });
-      }
-    } catch (writeError: any) {
-      console.error("[NUTRITION] Erro ao salvar arquivo:", {
+    } catch (writeError: unknown) {
+      console.error("[NUTRITION] Erro ao salvar arquivo no Firebase Storage:", {
         error: writeError,
-        message: writeError?.message,
-        stack: writeError?.stack,
+        message: writeError instanceof Error ? writeError.message : undefined,
+        stack: writeError instanceof Error ? writeError.stack : undefined,
         fileName,
-        absPath,
-        uploadsDir
+        objectPath,
+        bucket: bucket.name
       });
       throw writeError;
     }
     
-    // Garantir que a URL não tenha // duplicado
-    const cleanOrigin = origin.replace(/\/+$/, ""); // Remove trailing slashes
-    // Usar /api/uploads/nutrition/ para garantir que a rota API seja chamada
-    const imageUrl = `${cleanOrigin}/api/uploads/nutrition/${fileName}`;
+    let imageUrl: string | undefined;
+    try {
+      await storageFile.makePublic();
+      imageUrl = storageFile.publicUrl();
+    } catch (publicError) {
+      console.warn("[NUTRITION] Não foi possível tornar público, gerando URL assinada:", {
+        error: publicError,
+        fileName,
+        objectPath,
+        bucket: bucket.name
+      });
+      const [signedUrl] = await storageFile.getSignedUrl({
+        action: "read",
+        expires: Date.now() + 1000 * 60 * 60 * 24 * 365,
+      });
+      imageUrl = signedUrl;
+    }
     
     console.log("[NUTRITION] Image URL generated:", {
       imageUrl,
-      origin,
-      cleanOrigin,
       fileName,
-      absPath,
-      uploadsDir,
-      fileExists: fileExistsAfter,
+      objectPath,
+      bucket: bucket.name,
       fileSize: buf.length,
       imageId,
       env: {
@@ -663,7 +617,7 @@ IMPORTANTE:
 
     const reply = completion.choices[0].message?.content ?? "";
 
-    let parsed: NutritionResponseAI | any;
+    let parsed: NutritionResponseAI | undefined;
 
     try {
       const jsonOnly = extractJSON(reply);
@@ -686,10 +640,10 @@ IMPORTANTE:
     const foods = parsed.foods;
 
     // modo "totais" (mais parecido com ChatGPT): IA já retorna as calorias/macros finais por item
-    const looksLikeTotals = foods.some((f: any) => f && f.nutrition && !f.nutrition_per_100g);
+    const looksLikeTotals = foods.some((f: FoodItemAI) => f && f.nutrition && !f.nutrition_per_100g);
     if (!wantsWeightsFlow && looksLikeTotals) {
       const sanitizedTotals: NutritionResponse = {
-        foods: foods.map((f: any, idx: number) => sanitizeTotalsFood(f, idx)),
+        foods: foods.map((f: FoodItemAI, idx: number) => sanitizeTotalsFood(f, idx)),
         imageId,
         imageUrl,
       };
@@ -703,29 +657,29 @@ IMPORTANTE:
     }
 
     // backward compat: se vier no formato antigo (nutrition), devolve como antes (mas ainda normaliza números)
-    const isOldFormat = foods.some((f: any) => f && (f as any).nutrition && !(f as any).nutrition_per_100g);
+    const isOldFormat = foods.some((f: FoodItemAI) => f && f.nutrition && !f.nutrition_per_100g);
 
     if (isOldFormat) {
       const sanitizedOld: NutritionResponse = {
-        foods: foods.map((f: any, idx: number) => ({
+        foods: foods.map((f: FoodItemAI, idx: number) => ({
           food_id: f.food_id || `food-${idx + 1}`,
           food_name: f.food_name || "Alimento",
           confidence: Math.max(0, Math.min(1, Number(f.confidence ?? 0))),
           serving_size: f.serving_size || "1 porção",
           nutrition: {
-            calories: round0((f as any).nutrition?.calories),
-            carbohydrates: round0((f as any).nutrition?.carbohydrates),
-            protein: round0((f as any).nutrition?.protein),
-            fat: round0((f as any).nutrition?.fat),
-            fiber: round0((f as any).nutrition?.fiber),
-            sugar: round0((f as any).nutrition?.sugar),
-            sodium: round0((f as any).nutrition?.sodium),
-            potassium: round0((f as any).nutrition?.potassium),
+            calories: round0(f.nutrition?.calories),
+            carbohydrates: round0(f.nutrition?.carbohydrates),
+            protein: round0(f.nutrition?.protein),
+            fat: round0(f.nutrition?.fat),
+            fiber: round0(f.nutrition?.fiber),
+            sugar: round0(f.nutrition?.sugar),
+            sodium: round0(f.nutrition?.sodium),
+            potassium: round0(f.nutrition?.potassium),
             vitamin_c:
-              (f as any).nutrition?.vitamin_c === undefined ||
-              (f as any).nutrition?.vitamin_c === null
+              f.nutrition?.vitamin_c === undefined ||
+              f.nutrition?.vitamin_c === null
                 ? undefined
-                : round0((f as any).nutrition?.vitamin_c),
+                : round0(f.nutrition?.vitamin_c),
           },
         })),
         imageId,
@@ -741,14 +695,14 @@ IMPORTANTE:
     }
 
     // Novo formato (produção): calcula macros finais no backend (IA só fornece per100 + weight_g).
-    const rawWeights = foods.map((f: any) => num0(f.weight_g));
+    const rawWeights = foods.map((f: FoodItemAI) => num0(f.weight_g));
     const baseWeights =
       totalWeightG && totalWeightG > 0
         ? normalizeWeightsToTotal(rawWeights, totalWeightG)
         : rawWeights.map((w: number) => (Number.isFinite(w) && w > 0 ? Math.round(w) : 1));
 
     // Ajuste profissional (opcional): meta calórica fixa -> PESO variável (escala os pesos)
-    const per100List = foods.map((f: any) => f.nutrition_per_100g);
+    const per100List = foods.map((f: FoodItemAI) => f.nutrition_per_100g);
     const adjusted =
       forcedCalories && forcedCalories > 0
         ? adjustWeightsToTargetCalories({
@@ -759,7 +713,7 @@ IMPORTANTE:
         : { weights: baseWeights, factor: 1, currentTotal: 0, finalTotal: 0 };
 
     const sanitized: NutritionResponse = {
-      foods: foods.map((f: any, idx: number) => {
+      foods: foods.map((f: FoodItemAI, idx: number) => {
         const weightG = adjusted.weights[idx] ?? 0;
         const per = f.nutrition_per_100g ?? ({} as NutritionPer100g);
         const factor = weightG / 100;
@@ -771,7 +725,7 @@ IMPORTANTE:
 
         // Se tiver forcedCalories e ficar a 1-3 kcal do alvo por arredondamento, corrige no primeiro item (visual)
         if (forcedCalories && forcedCalories > 0 && idx === 0 && foods.length > 0) {
-          const totalNow = foods.reduce((sum: number, _: any, j: number) => {
+          const totalNow = foods.reduce((sum: number, _: FoodItemAI, j: number) => {
             const wj = adjusted.weights[j] ?? 0;
             const pj = foods[j]?.nutrition_per_100g ?? ({} as NutritionPer100g);
             return sum + round0(num0(pj.calories) * (wj / 100));
