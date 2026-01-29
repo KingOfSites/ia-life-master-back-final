@@ -197,9 +197,22 @@ export async function POST(req: NextRequest) {
         };
         if (cardTokenId && typeof cardTokenId === "string" && cardTokenId.trim()) {
             preapprovalBody.card_token_id = cardTokenId.trim();
+            // Obrigatório para autorizar a assinatura imediatamente com o cartão (checkout transparente)
+            preapprovalBody.status = "authorized";
         }
 
-        const preapproval = await preApprovalClient.create({ body: preapprovalBody });
+        let preapproval: any;
+        try {
+            preapproval = await preApprovalClient.create({ body: preapprovalBody });
+        } catch (mpErr: any) {
+            const msg = mpErr?.message || String(mpErr);
+            const cause = mpErr?.cause?.message ?? (typeof mpErr?.cause === "object" ? JSON.stringify(mpErr.cause) : "");
+            console.error("[SUBSCRIPTION] Preapproval MP error:", msg, cause || mpErr?.cause);
+            return NextResponse.json(
+                { error: msg || "Erro ao autorizar assinatura com cartão. Verifique os dados do cartão e tente novamente." },
+                { status: 500 }
+            );
+        }
         const initPoint = (preapproval as any).init_point;
         const mpPreapprovalId = (preapproval as any).id;
 
