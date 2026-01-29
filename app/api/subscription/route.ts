@@ -86,7 +86,7 @@ export async function POST(req: NextRequest) {
         }
 
         const body = await req.json();
-        const { planType, billingPeriod, referralCode } = body;
+        const { planType, billingPeriod, referralCode, cardTokenId } = body;
 
         if (!planType || !billingPeriod) {
             return NextResponse.json(
@@ -188,13 +188,16 @@ export async function POST(req: NextRequest) {
             throw new Error("Falha ao criar plano de assinatura no Mercado Pago");
         }
 
-        const preapprovalBody = {
+        const preapprovalBody: Record<string, unknown> = {
             preapproval_plan_id: planId,
             reason: planBody.reason,
             external_reference: subscription.id,
             payer_email: user.email,
             back_url: `${frontendUrl}/payment-success?subscriptionId=${subscription.id}`,
         };
+        if (cardTokenId && typeof cardTokenId === "string" && cardTokenId.trim()) {
+            preapprovalBody.card_token_id = cardTokenId.trim();
+        }
 
         const preapproval = await preApprovalClient.create({ body: preapprovalBody });
         const initPoint = (preapproval as any).init_point;
@@ -218,11 +221,13 @@ export async function POST(req: NextRequest) {
             });
         }
 
+        const preapprovalStatus = (preapproval as any).status;
         return NextResponse.json({
             preferenceId: planId,
             initPoint: initPoint || null,
             sandboxInitPoint: initPoint || null,
             subscriptionId: subscription.id,
+            status: preapprovalStatus || null,
         });
     } catch (error: any) {
         console.error("[SUBSCRIPTION] POST error:", error);
