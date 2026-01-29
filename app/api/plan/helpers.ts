@@ -170,9 +170,19 @@ export const calcTargets = (onboarding: OnboardingData | null | undefined) => {
   // Ajuste por objetivo
   // -------------------------
   if (goal === "gain") {
+    // Baseline: +250 kcal
     calories += 250;
 
-    if (weight && targetWeight && targetWeight > weight) {
+    // Usar velocidade de ganho (weeklyLossKg no onboarding) quando fornecida.
+    // Faixa saudável: 0.2–0.7 kg/semana (~220–770 kcal/dia de excedente).
+    const weeklyGain =
+      weeklyLoss && weeklyLoss > 0 && weeklyLoss <= 2
+        ? Math.min(Math.max(weeklyLoss, 0.2), 0.7)
+        : null;
+    if (weeklyGain) {
+      const surplus = Math.round(weeklyGain * 1100); // ~1100 kcal/dia por 1 kg/sem
+      calories += surplus;
+    } else if (weight && targetWeight && targetWeight > weight) {
       const delta = targetWeight - weight;
       const extra = Math.min(Math.max(Math.round(delta * 60), 150), 400);
       calories += extra;
@@ -213,9 +223,9 @@ export const calcTargets = (onboarding: OnboardingData | null | undefined) => {
 
   // -------------------------
   // Macros (aprox.)
+  // Proteína: 1.2–1.4 g × peso (faixa recomendada)
   // -------------------------
-  const proteinPerKg =
-    goal === "gain" ? 1.8 : 2.0;
+  const proteinPerKg = goal === "gain" ? 1.2 : goal === "loss" ? 1.4 : 1.3;
 
   const protein = weight
     ? Math.round(weight * proteinPerKg)
@@ -268,8 +278,11 @@ REGRAS OBRIGATÓRIAS:
      * Lento (slow): 15% de déficit
      * Recomendado (recommended): 25% de déficit
      * Rápido (fast): 30% de déficit
-     * Se houver weeklyLossKg (kg/semana), calcule: déficit = weeklyLossKg × 1100 kcal/dia
-   - GANHAR PESO (gain): Adicione 250 kcal + ajuste baseado na diferença de peso
+     * Se houver "Perda semanal desejada" (kg/semana), use: déficit = kg/sem × 1100 kcal/dia
+   - GANHAR PESO (gain): Adicione excedente calórico:
+     * Base: 250 kcal sobre o TDEE
+     * Se houver "Ganho semanal desejado" (kg/semana), use excedente ≈ kg/sem × 1100 kcal/dia (faixa típica 0.2–0.7 kg/sem). Calorias = TDEE + excedente.
+     * Senão, ajuste pela diferença peso desejado − peso atual (ex.: +150 a +400 kcal)
    - MANTER (maintain): Use TDEE sem ajustes
 
 4. LIMITES DE SEGURANÇA:
@@ -277,10 +290,9 @@ REGRAS OBRIGATÓRIAS:
    - Calorias máximas: 3500 kcal
 
 5. DISTRIBUIÇÃO DE MACROS:
-   - Proteína: 
-     * Ganhar peso: 1.8g por kg de peso corporal
-     * Perder/manter: 2.0g por kg de peso corporal
-     * Ou 30% das calorias (dividir por 4 para gramas)
+   - Proteína: 1.2–1.4 g por kg de peso corporal.
+     * Ganhar peso: 1.2 g/kg. Perder peso: 1.4 g/kg. Manter: 1.3 g/kg.
+     * Fórmula: proteína (g) = peso (kg) × fator, arredondar. Ou 30% das calorias/4 se peso não informado.
    - Carboidratos: 40% das calorias (dividir por 4 para gramas)
    - Gorduras: 30% das calorias (dividir por 9 para gramas)
 
@@ -295,6 +307,10 @@ REGRAS OBRIGATÓRIAS:
 
 IMPORTANTE: Todos os valores devem ser números inteiros (arredondados).`;
 
+    const isGain = goal === "gain";
+    const velocityLabel = isGain ? "Ganho semanal desejado" : "Perda semanal desejada";
+    const intensityLabel = isGain ? "Intensidade de ganho" : "Intensidade de perda";
+
     const userPrompt = `Calcule as necessidades nutricionais para:
 - Peso: ${weight || "não informado"} kg
 - Altura: ${height || "não informado"} cm
@@ -303,8 +319,8 @@ IMPORTANTE: Todos os valores devem ser números inteiros (arredondados).`;
 - Objetivo: ${goal === "loss" ? "perder peso" : goal === "gain" ? "ganhar peso" : "manter peso"}
 - Nível de atividade: ${activityLevel}
 - Peso desejado: ${targetWeight || "não informado"} kg
-- Perda semanal desejada: ${weeklyLoss || "não informado"} kg/semana
-- Intensidade de perda: ${weeklyLossIntensity}
+- ${velocityLabel}: ${weeklyLoss ?? "não informado"} kg/semana
+- ${intensityLabel}: ${weeklyLossIntensity}
 
 Calcule e retorne o JSON com calories, protein, carbs, fat e explanation.`;
 
