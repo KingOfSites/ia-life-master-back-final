@@ -1,20 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import jwt from "jsonwebtoken";
-import { preApprovalPlanClient, preApprovalClient } from "@/lib/mercadopago";
-
-// Cancelar preapproval no MP ao cancelar assinatura
-async function cancelPreapprovalInMP(mpSubscriptionId: string | null) {
-    if (!mpSubscriptionId) return;
-    try {
-        await preApprovalClient.update({
-            id: mpSubscriptionId,
-            body: { status: "cancelled" },
-        });
-    } catch (err) {
-        console.error("[SUBSCRIPTION] Erro ao cancelar preapproval no MP:", err);
-    }
-}
+import { preferenceClient, generateReferenceId } from "@/lib/mercadopago";
+import crypto from "crypto";
 const JWT_SECRET = process.env.JWT_SECRET || "supersecret";
 
 // Preços dos planos (em centavos) — R$ 1,00 para testes
@@ -86,7 +74,7 @@ export async function POST(req: NextRequest) {
         }
 
         const body = await req.json();
-        const { planType, billingPeriod, referralCode, cardTokenId } = body;
+        const { planType, billingPeriod, referralCode } = body;
 
         if (!planType || !billingPeriod) {
             return NextResponse.json(
@@ -160,95 +148,73 @@ export async function POST(req: NextRequest) {
             },
         });
 
-        // Assinatura recorrente (Preapproval): criar plano e preapproval no Mercado Pago
-        const frontendUrl = process.env.FRONTEND_URL || process.env.BACKEND_URL || "https://ia-life-master-back-final-production.up.railway.app";
-        const amountReais = finalPrice / 100;
-        const isMonthly = billingPeriod === "monthly";
-
-        const planBody = {
-            reason: `Plano ${planType === "basic" ? "Básico" : "Completo"} - ${isMonthly ? "Mensal" : "Anual"}`,
-            auto_recurring: {
-                frequency: isMonthly ? 1 : 12,
-                frequency_type: "months",
-                transaction_amount: amountReais,
-                currency_id: "BRL",
-                billing_day: 10,
-                billing_day_proportional: true,
+        // Criar preferência de pagamento no Mercado Pago
+        const referenceId = generateReferenceId(userId, planType);
+        const frontendUrl = process.env.FRONTEND_URL || "https://ia-life-master-back-final-production.up.railway.app";
+        const backendUrl = process.env.BACKEND_URL || "https://ia-life-master-back-final-production.up.railway.app";
+        
+        const preferenceData = {
+            items: [
+                {
+                    id: `plan-${planType}-${billingPeriod}`,
+                    title: `Plano ${planType === "basic" ? "Básico" : "Completo"} - ${billingPeriod === "monthly" ? "Mensal" : "Anual"}`,
+                    quantity: 1,
+                    unit_price: finalPrice / 100, // Converter centavos para reais
+                    currency_id: "BRL",
+                },
+            ],
+            payer: {
+                email: user.email,
+                name: user.name || undefined,
             },
-            payment_methods_allowed: {
-                payment_types: [{ id: "credit_card" }],
-                payment_methods: [],
+            back_urls: {
+                success: `${frontendUrl}/payment-success?subscriptionId=${subscription.id}`,
+                failure: `${frontendUrl}/payment-failure?subscriptionId=${subscription.id}`,
+                pending: `${frontendUrl}/payment-pending?subscriptionId=${subscription.id}`,
             },
-            back_url: `${frontendUrl}/payment-success?subscriptionId=${subscription.id}`,
+            external_reference: referenceId,
+            notification_url: `${backendUrl}/api/subscription/webhook`,
+            metadata: {
+                userId,
+                subscriptionId: subscription.id,
+                planType,
+                billingPeriod,
+                referralCode: referralCode || null,
+                referrerId: referrerId || null,
+            },
         };
 
-        const plan = await preApprovalPlanClient.create({ body: planBody });
-        const planId = (plan as any).id;
-        if (!planId) {
-            throw new Error("Falha ao criar plano de assinatura no Mercado Pago");
-        }
+        const preference = await preferenceClient.create({ body: preferenceData });
 
-        const preapprovalBody: Record<string, unknown> = {
-            preapproval_plan_id: planId,
-            reason: planBody.reason,
-            external_reference: subscription.id,
-            payer_email: user.email,
-            back_url: `${frontendUrl}/payment-success?subscriptionId=${subscription.id}`,
-        };
-        if (cardTokenId && typeof cardTokenId === "string" && cardTokenId.trim()) {
-            preapprovalBody.card_token_id = cardTokenId.trim();
-            // Obrigatório para autorizar a assinatura imediatamente com o cartão (checkout transparente)
-            preapprovalBody.status = "authorized";
-        }
-
-        let preapproval: any;
-        try {
-            preapproval = await preApprovalClient.create({ body: preapprovalBody });
-        } catch (mpErr: any) {
-            // SDK do MP faz throw do body JSON da API (não é Error com .response)
-            const fullError = {
-                message: mpErr?.message,
-                status: mpErr?.status,
-                error: mpErr?.error,
-                cause: mpErr?.cause,
-                ...(typeof mpErr === "object" && mpErr !== null ? mpErr : {}),
-            };
-            console.error("[SUBSCRIPTION] PREAPPROVAL ERROR FULL:", JSON.stringify(fullError, null, 2));
-            const msg = fullError.message || (typeof mpErr === "string" ? mpErr : "Erro ao autorizar assinatura com cartão.");
-            const statusCode = typeof fullError.status === "number" ? fullError.status : 500;
-            return NextResponse.json(
-                { error: msg, details: fullError.error ? { code: fullError.error } : undefined },
-                { status: statusCode >= 400 && statusCode < 600 ? statusCode : 500 }
-            );
-        }
-        const initPoint = (preapproval as any).init_point;
-        const mpPreapprovalId = (preapproval as any).id;
-
+        // Atualizar assinatura com o ID da preferência
         await prisma.subscription.update({
             where: { id: subscription.id },
-            data: {
-                mpPreferenceId: planId,
-                mpSubscriptionId: mpPreapprovalId || null,
-            },
+            data: { mpPreferenceId: preference.id },
         });
 
+        // Se houver código de indicação válido, registrar a referência
         if (referrerId && referralCode) {
             await prisma.referral.upsert({
                 where: {
-                    referrerId_referredId: { referrerId, referredId: userId },
+                    referrerId_referredId: {
+                        referrerId,
+                        referredId: userId,
+                    },
                 },
                 update: {},
-                create: { referrerId, referredId: userId, referralCode },
+                create: {
+                    referrerId,
+                    referredId: userId,
+                    referralCode,
+                },
             });
         }
 
-        const preapprovalStatus = (preapproval as any).status;
         return NextResponse.json({
-            preferenceId: planId,
-            initPoint: initPoint || null,
-            sandboxInitPoint: initPoint || null,
+            preferenceId: preference.id,
+            initPoint: preference.init_point,
+            sandboxInitPoint: preference.sandbox_init_point,
             subscriptionId: subscription.id,
-            status: preapprovalStatus || null,
         });
     } catch (error: any) {
         console.error("[SUBSCRIPTION] POST error:", error);
@@ -278,8 +244,7 @@ export async function DELETE(req: NextRequest) {
             );
         }
 
-        await cancelPreapprovalInMP(subscription.mpSubscriptionId);
-
+        // Cancelar imediatamente - revoga acesso na hora
         await prisma.subscription.update({
             where: { id: subscription.id },
             data: {

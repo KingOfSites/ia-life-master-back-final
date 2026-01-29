@@ -88,23 +88,18 @@ export async function POST(req: NextRequest) {
         }
         const finalPrice = basePrice - discount;
 
-        // PIX expira em 30 minutos (evita cancelamento rápido; padrão do MP pode ser bem curto em sandbox)
-        const expiresAt = new Date(Date.now() + 30 * 60 * 1000);
-        const dateOfExpiration = expiresAt.toISOString().replace(/\.\d{3}Z$/, ".000-03:00");
-
         // Criar pagamento PIX no Mercado Pago
         const paymentData = {
             transaction_amount: finalPrice / 100,
             description: `Assinatura ${subscription.planType === "basic" ? "Básico" : "Completo"} - ${subscription.billingPeriod === "monthly" ? "Mensal" : "Anual"}`,
             payment_method_id: "pix",
-            date_of_expiration: dateOfExpiration,
             payer: {
                 email: user.email,
                 first_name: user.name?.split(" ")[0] || "",
                 last_name: user.name?.split(" ").slice(1).join(" ") || "",
                 identification: {
                     type: "CPF",
-                    number: (user as { cpf?: string | null }).cpf ? String((user as { cpf?: string | null }).cpf).replace(/\D/g, "") : "",
+                    number: "", // Pode ser coletado no frontend se necessário
                 },
             },
             external_reference: `sub_${subscription.id}`,

@@ -121,15 +121,10 @@ export async function POST(req: NextRequest) {
             token: token.id,
         });
     } catch (error: any) {
-        const fullError = typeof error === "object" && error !== null
-            ? { message: error?.message, status: error?.status, error: error?.error, cause: error?.cause, ...error }
-            : { message: String(error) };
-        console.error("[CARD_TOKEN] CARD TOKEN ERROR FULL:", JSON.stringify(fullError, null, 2));
-        const msg = fullError.message || "Erro ao criar token do cartão";
-        const statusCode = typeof fullError.status === "number" ? fullError.status : 500;
+        console.error("[CARD_TOKEN] POST error:", error);
         return NextResponse.json(
-            { error: msg, details: fullError.error ? { code: fullError.error } : undefined },
-            { status: statusCode >= 400 && statusCode < 600 ? statusCode : 500 }
+            { error: error.message || "Erro ao criar token do cartão" },
+            { status: 500 }
         );
     }
 }

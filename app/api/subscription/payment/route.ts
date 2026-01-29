@@ -61,7 +61,6 @@ export async function POST(req: NextRequest) {
         // Buscar usuário
         const user = await prisma.user.findUnique({
             where: { id: userId },
-            select: { id: true, email: true, name: true, cpf: true },
         });
 
         if (!user) {
@@ -112,7 +111,7 @@ export async function POST(req: NextRequest) {
                 email: user.email,
                 identification: {
                     type: "CPF",
-                    number: (user as { cpf?: string | null }).cpf ? String((user as { cpf?: string | null }).cpf).replace(/\D/g, "") : "",
+                    number: "", // Pode ser coletado no frontend se necessário
                 },
             },
             external_reference: `sub_${subscription.id}`,
@@ -175,13 +174,12 @@ export async function POST(req: NextRequest) {
                               process.env.MERCADOPAGO_ACCESS_TOKEN?.includes("TEST") ||
                               process.env.MP_ACCESS_TOKEN?.includes("TEST");
         
-        // Detectar se é cartão de teste (cartões de teste do MP geralmente ficam pending ou in_process)
+        // Detectar se é cartão de teste (cartões de teste do MP geralmente ficam pending inicialmente)
         const isTestCard = payment.payment_method_id === "visa" || 
                           payment.payment_method_id === "master" ||
                           payment.payment_method_id === "amex";
-        const needsRecheck = payment.status === "pending" || payment.status === "in_process";
         
-        if ((isDevelopment || isTestCard) && needsRecheck) {
+        if ((isDevelopment || isTestCard) && payment.status === "pending") {
             console.log("[PAYMENT] Test/Development mode: Auto-approving pending payment", {
                 isDevelopment,
                 isTestCard,
@@ -198,9 +196,8 @@ export async function POST(req: NextRequest) {
                     }
                     const updatedPayment = await paymentClient.get({ id: payment.id });
                     
-                    // Se ainda estiver pending ou in_process, tratar como aprovado para cartões de teste
-                    const stillProcessing = updatedPayment.status === "pending" || updatedPayment.status === "in_process";
-                    const finalStatus = (stillProcessing && isTestCard) 
+                    // Se ainda estiver pending, tratar como aprovado para cartões de teste
+                    const finalStatus = (updatedPayment.status === "pending" && isTestCard) 
                         ? "approved" 
                         : updatedPayment.status;
                     
