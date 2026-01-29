@@ -205,12 +205,20 @@ export async function POST(req: NextRequest) {
         try {
             preapproval = await preApprovalClient.create({ body: preapprovalBody });
         } catch (mpErr: any) {
-            const msg = mpErr?.message || String(mpErr);
-            const cause = mpErr?.cause?.message ?? (typeof mpErr?.cause === "object" ? JSON.stringify(mpErr.cause) : "");
-            console.error("[SUBSCRIPTION] Preapproval MP error:", msg, cause || mpErr?.cause);
+            // SDK do MP faz throw do body JSON da API (não é Error com .response)
+            const fullError = {
+                message: mpErr?.message,
+                status: mpErr?.status,
+                error: mpErr?.error,
+                cause: mpErr?.cause,
+                ...(typeof mpErr === "object" && mpErr !== null ? mpErr : {}),
+            };
+            console.error("[SUBSCRIPTION] PREAPPROVAL ERROR FULL:", JSON.stringify(fullError, null, 2));
+            const msg = fullError.message || (typeof mpErr === "string" ? mpErr : "Erro ao autorizar assinatura com cartão.");
+            const statusCode = typeof fullError.status === "number" ? fullError.status : 500;
             return NextResponse.json(
-                { error: msg || "Erro ao autorizar assinatura com cartão. Verifique os dados do cartão e tente novamente." },
-                { status: 500 }
+                { error: msg, details: fullError.error ? { code: fullError.error } : undefined },
+                { status: statusCode >= 400 && statusCode < 600 ? statusCode : 500 }
             );
         }
         const initPoint = (preapproval as any).init_point;
