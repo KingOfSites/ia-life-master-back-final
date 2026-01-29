@@ -151,7 +151,7 @@ export async function POST(req: NextRequest) {
         // Criar preferência de pagamento no Mercado Pago
         const referenceId = generateReferenceId(userId, planType);
         const frontendUrl = process.env.FRONTEND_URL || "http://localhost:3000";
-        const backendUrl = process.env.BACKEND_URL || "http://localhost:3001";
+        const backendUrl = process.env.BACKEND_URL || "http://localhost:3002";
         
         const preferenceData = {
             items: [
