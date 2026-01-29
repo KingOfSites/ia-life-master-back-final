@@ -4,14 +4,18 @@ import jwt from "jsonwebtoken";
 
 export const runtime = "nodejs";
 
+// Health Score: escala fixa 0–10 (não 0–100)
+const HEALTH_SCORE_MIN = 0;
+const HEALTH_SCORE_MAX = 10;
+
 const HEALTH_SCORE_SYSTEM = `Você é um nutricionista. Avalie a qualidade nutricional e retorne APENAS um JSON válido, sem markdown, sem explicação extra.
 
-Para "meal" (refeição individual): avalie proteína, fibra, açúcar, sódio, equilíbrio de macros. Refeições muito calóricas com pouca proteína/fibra ou muito açúcar/gordura saturada devem ter score menor. Escala 0-10.
+Para "meal" (refeição individual): avalie proteína, fibra, açúcar, sódio, equilíbrio de macros. Refeições muito calóricas com pouca proteína/fibra ou muito açúcar/gordura saturada devem ter score menor. Escala 0-10 (nunca 0-100).
 
-Para "daily" (dia): avalie se o consumo do dia está alinhado às metas (quando fornecidas). Consumo equilibrado em relação às metas = score maior. Muito acima ou abaixo das metas = score menor. Escala 0-10.
+Para "daily" (dia): avalie se o consumo do dia está alinhado às metas (quando fornecidas). Consumo equilibrado em relação às metas = score maior. Muito acima ou abaixo das metas = score menor. Escala 0-10 (nunca 0-100).
 
 Retorne exatamente: {"score": number, "message": "frase curta em português"}
-- score: número entre 0 e 10 (use 1 casa decimal)
+- score: número entre 0 e 10 (use 1 casa decimal). Nunca retorne acima de 10.
 - message: uma frase curta e útil em português (ex.: "Bom equilíbrio de proteína e fibras." ou "Alto em açúcar; tente reduzir em refeições futuras.")`;
 
 type Summary = {
@@ -98,7 +102,7 @@ export async function POST(req: Request) {
       // Fallback se a IA não retornar JSON válido
       parsed = { score: 5, message: "Avaliação indisponível." };
     }
-    const score = Math.max(0, Math.min(10, Number(parsed.score) ?? 5));
+    const score = Math.max(HEALTH_SCORE_MIN, Math.min(HEALTH_SCORE_MAX, Number(parsed.score) ?? 5));
     const message = typeof parsed.message === "string" ? parsed.message : undefined;
 
     return NextResponse.json({ score: Math.round(score * 10) / 10, message });
