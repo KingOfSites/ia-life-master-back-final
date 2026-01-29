@@ -36,6 +36,8 @@ model User {
   achievements   Achievement[]
   notifications  Notification[]
   checkIns       CheckIn[]
+  resetCode      String?       // Código para redefinir senha (6 dígitos)
+  resetCodeExpiresAt DateTime? // Expiração do código (ex: 15 min)
 }
 
 model Onboarding {
