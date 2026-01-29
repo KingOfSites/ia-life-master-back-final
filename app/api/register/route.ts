@@ -52,7 +52,7 @@ export async function POST(req: Request) {
 
 		if (existing) {
 			return NextResponse.json(
-				{ error: "Este e-mail já está cadastrado. Tente fazer login ou use outro e-mail." },
+				{ error: "Esse e-mail já tem uma conta. Faça login na tela anterior ou use outro e-mail para se cadastrar." },
 				{ status: 409 },
 			);
 		}

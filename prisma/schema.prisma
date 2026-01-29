@@ -52,7 +52,7 @@ model Onboarding {
   workoutsPerWeek        Int
   goalPrimary            String?
   targetWeight           Int?
-  weeklyLossKg           Int?
+  weeklyLossKg           Float? // Valor do step 11: 0,1 / 0,8 / 1,5 kg por semana
   weeklyLossIntensity    String?
   heightCm               Int?
   weightKg               Int?
