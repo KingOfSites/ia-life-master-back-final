@@ -150,8 +150,8 @@ export async function POST(req: NextRequest) {
 
         // Criar preferência de pagamento no Mercado Pago
         const referenceId = generateReferenceId(userId, planType);
-        const frontendUrl = process.env.FRONTEND_URL || "http://localhost:3000";
-        const backendUrl = process.env.BACKEND_URL || "http://localhost:3000";
+        const frontendUrl = process.env.FRONTEND_URL || "https://ia-life-master-back-final-production.up.railway.app";
+        const backendUrl = process.env.BACKEND_URL || "https://ia-life-master-back-final-production.up.railway.app";
         
         const preferenceData = {
             items: [
