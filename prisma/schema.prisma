@@ -32,6 +32,7 @@ model User {
   referralCode    String?         @unique
   referredBy      String?
   referralRewards Int             @default(0)
+  cpf             String?         // CPF (apenas dígitos) para pagamentos
   userBadges      UserBadge[]
   achievements    Achievement[]
   notifications   Notification[]

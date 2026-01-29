@@ -28,6 +28,7 @@ export async function GET(req: Request) {
       id: true,
       name: true,
       email: true,
+      cpf: true,
       profileImage: true,
       createdAt: true,
     },
@@ -73,13 +74,14 @@ export async function PATCH(req: Request) {
   if (!userId) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
 
   const body = await req.json().catch(() => ({} as any));
-  const { name, email, phone, birthDate, height, weight, goal, profileImage } = body;
+  const { name, email, phone, birthDate, height, weight, goal, profileImage, cpf } = body;
 
   // Atualizar dados do usuário
   const userUpdate: any = {};
   if (name !== undefined) userUpdate.name = String(name).trim();
   if (email !== undefined) userUpdate.email = String(email).trim();
   if (profileImage !== undefined) userUpdate.profileImage = profileImage ? String(profileImage).trim() : null;
+  if (cpf !== undefined) userUpdate.cpf = cpf ? String(cpf).replace(/\D/g, "").slice(0, 11) : null;
   // phone não está no schema do User, pode ser adicionado depois
 
   if (Object.keys(userUpdate).length > 0) {

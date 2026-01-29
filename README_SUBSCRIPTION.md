@@ -10,7 +10,10 @@ Adicione as seguintes variáveis no arquivo `.env` do backend:
 MERCADOPAGO_ACCESS_TOKEN=seu_access_token_aqui
 FRONTEND_URL=https://seu-frontend.com
 BACKEND_URL=https://seu-backend.com
+MP_WEBHOOK_SECRET=seu_webhook_secret_aqui
 ```
+
+O **MP_WEBHOOK_SECRET** é gerado ao configurar o webhook no painel do Mercado Pago (Suas integrações → Webhooks). É usado para validar a assinatura (`x-signature`) das notificações. Em produção, configure sempre. Veja **PAYMENT_WEBHOOK.md** para detalhes do webhook e testes.
 
 ### 2. Obter Access Token do Mercado Pago
 
@@ -21,9 +24,10 @@ BACKEND_URL=https://seu-backend.com
 
 ### 3. Configurar Webhook
 
-1. No painel do Mercado Pago, vá em **Webhooks**
+1. No painel do Mercado Pago ([Suas integrações](https://www.mercadopago.com.br/developers/panel/app)), vá em **Webhooks** → **Configurar notificações**
 2. Configure a URL: `https://seu-backend.com/api/subscription/webhook`
-3. Selecione os eventos: `payment`
+3. Selecione os eventos: **Payments** (`payment`), **Plans and Subscriptions** (`subscription_preapproval` e `subscription_authorized_payment`)
+4. Clique em **Salvar** e copie o **secret** para a variável **MP_WEBHOOK_SECRET** no `.env`
 
 ### 4. Migração do Banco de Dados
 
@@ -80,18 +84,18 @@ Cria uma nova assinatura e retorna o link de pagamento do Mercado Pago.
 Cancela a assinatura atual (marca para cancelar no final do período).
 
 #### POST `/api/subscription/webhook`
-Webhook recebido do Mercado Pago quando há atualizações de pagamento.
+Webhook recebido do Mercado Pago quando há atualizações de pagamento. A assinatura no header `x-signature` é validada com **MP_WEBHOOK_SECRET** (HMAC SHA256). Ver **PAYMENT_WEBHOOK.md**.
 
-## Fluxo de Pagamento
+## Fluxo de Pagamento (Assinatura Recorrente — Preapproval)
 
 1. Usuário seleciona um plano na tela de planos
 2. Frontend chama `POST /api/subscription` com os dados do plano
-3. Backend cria preferência no Mercado Pago e retorna `initPoint`
-4. Frontend abre o link do Mercado Pago no navegador
-5. Usuário completa o pagamento no Mercado Pago
-6. Mercado Pago redireciona de volta para o frontend com status
-7. Mercado Pago envia webhook para o backend
-8. Backend atualiza status da assinatura e cria registro de pagamento
+3. Backend cria **plano de assinatura** (Preapproval Plan) e **preapproval** no Mercado Pago e retorna `initPoint`
+4. Frontend abre o link do Mercado Pago no navegador (checkout de assinatura)
+5. Usuário informa o cartão e autoriza a cobrança recorrente no Mercado Pago
+6. Mercado Pago redireciona de volta para o frontend (success)
+7. Mercado Pago envia webhook `subscription_preapproval` → backend ativa a assinatura e define `currentPeriodEnd`
+8. A cada ciclo (mensal/anual), Mercado Pago cobra o cartão e envia webhook `subscription_authorized_payment` → backend registra o pagamento e renova `currentPeriodEnd`
 
 ## Sistema de Indicação
 

@@ -1,19 +1,31 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import jwt from "jsonwebtoken";
-import { preferenceClient, generateReferenceId } from "@/lib/mercadopago";
-import crypto from "crypto";
+import { preApprovalPlanClient, preApprovalClient } from "@/lib/mercadopago";
+
+// Cancelar preapproval no MP ao cancelar assinatura
+async function cancelPreapprovalInMP(mpSubscriptionId: string | null) {
+    if (!mpSubscriptionId) return;
+    try {
+        await preApprovalClient.update({
+            id: mpSubscriptionId,
+            body: { status: "cancelled" },
+        });
+    } catch (err) {
+        console.error("[SUBSCRIPTION] Erro ao cancelar preapproval no MP:", err);
+    }
+}
 const JWT_SECRET = process.env.JWT_SECRET || "supersecret";
 
-// Preços dos planos (em centavos)
+// Preços dos planos (em centavos) — R$ 1,00 para testes
 const PLAN_PRICES = {
     basic: {
-        monthly: 1990, // R$ 19,90
-        yearly: 19900, // R$ 199,00
+        monthly: 100, // R$ 1,00 (teste)
+        yearly: 100, // R$ 1,00 (teste)
     },
     complete: {
-        monthly: 3990, // R$ 39,90
-        yearly: 39900, // R$ 399,00
+        monthly: 100, // R$ 1,00 (teste)
+        yearly: 100, // R$ 1,00 (teste)
     },
 };
 
@@ -148,72 +160,68 @@ export async function POST(req: NextRequest) {
             },
         });
 
-        // Criar preferência de pagamento no Mercado Pago
-        const referenceId = generateReferenceId(userId, planType);
-        const frontendUrl = process.env.FRONTEND_URL || "https://ia-life-master-back-final-production.up.railway.app";
-        const backendUrl = process.env.BACKEND_URL || "https://ia-life-master-back-final-production.up.railway.app";
-        
-        const preferenceData = {
-            items: [
-                {
-                    id: `plan-${planType}-${billingPeriod}`,
-                    title: `Plano ${planType === "basic" ? "Básico" : "Completo"} - ${billingPeriod === "monthly" ? "Mensal" : "Anual"}`,
-                    quantity: 1,
-                    unit_price: finalPrice / 100, // Converter centavos para reais
-                    currency_id: "BRL",
-                },
-            ],
-            payer: {
-                email: user.email,
-                name: user.name || undefined,
+        // Assinatura recorrente (Preapproval): criar plano e preapproval no Mercado Pago
+        const frontendUrl = process.env.FRONTEND_URL || process.env.BACKEND_URL || "https://ia-life-master-back-final-production.up.railway.app";
+        const amountReais = finalPrice / 100;
+        const isMonthly = billingPeriod === "monthly";
+
+        const planBody = {
+            reason: `Plano ${planType === "basic" ? "Básico" : "Completo"} - ${isMonthly ? "Mensal" : "Anual"}`,
+            auto_recurring: {
+                frequency: isMonthly ? 1 : 12,
+                frequency_type: "months",
+                transaction_amount: amountReais,
+                currency_id: "BRL",
+                billing_day: 10,
+                billing_day_proportional: true,
             },
-            back_urls: {
-                success: `${frontendUrl}/payment-success?subscriptionId=${subscription.id}`,
-                failure: `${frontendUrl}/payment-failure?subscriptionId=${subscription.id}`,
-                pending: `${frontendUrl}/payment-pending?subscriptionId=${subscription.id}`,
+            payment_methods_allowed: {
+                payment_types: [{ id: "credit_card" }],
+                payment_methods: [],
             },
-            external_reference: referenceId,
-            notification_url: `${backendUrl}/api/subscription/webhook`,
-            metadata: {
-                userId,
-                subscriptionId: subscription.id,
-                planType,
-                billingPeriod,
-                referralCode: referralCode || null,
-                referrerId: referrerId || null,
-            },
+            back_url: `${frontendUrl}/payment-success?subscriptionId=${subscription.id}`,
         };
 
-        const preference = await preferenceClient.create({ body: preferenceData });
+        const plan = await preApprovalPlanClient.create({ body: planBody });
+        const planId = (plan as any).id;
+        if (!planId) {
+            throw new Error("Falha ao criar plano de assinatura no Mercado Pago");
+        }
 
-        // Atualizar assinatura com o ID da preferência
+        const preapprovalBody = {
+            preapproval_plan_id: planId,
+            reason: planBody.reason,
+            external_reference: subscription.id,
+            payer_email: user.email,
+            back_url: `${frontendUrl}/payment-success?subscriptionId=${subscription.id}`,
+        };
+
+        const preapproval = await preApprovalClient.create({ body: preapprovalBody });
+        const initPoint = (preapproval as any).init_point;
+        const mpPreapprovalId = (preapproval as any).id;
+
         await prisma.subscription.update({
             where: { id: subscription.id },
-            data: { mpPreferenceId: preference.id },
+            data: {
+                mpPreferenceId: planId,
+                mpSubscriptionId: mpPreapprovalId || null,
+            },
         });
 
-        // Se houver código de indicação válido, registrar a referência
         if (referrerId && referralCode) {
             await prisma.referral.upsert({
                 where: {
-                    referrerId_referredId: {
-                        referrerId,
-                        referredId: userId,
-                    },
+                    referrerId_referredId: { referrerId, referredId: userId },
                 },
                 update: {},
-                create: {
-                    referrerId,
-                    referredId: userId,
-                    referralCode,
-                },
+                create: { referrerId, referredId: userId, referralCode },
             });
         }
 
         return NextResponse.json({
-            preferenceId: preference.id,
-            initPoint: preference.init_point,
-            sandboxInitPoint: preference.sandbox_init_point,
+            preferenceId: planId,
+            initPoint: initPoint || null,
+            sandboxInitPoint: initPoint || null,
             subscriptionId: subscription.id,
         });
     } catch (error: any) {
@@ -244,7 +252,8 @@ export async function DELETE(req: NextRequest) {
             );
         }
 
-        // Cancelar imediatamente - revoga acesso na hora
+        await cancelPreapprovalInMP(subscription.mpSubscriptionId);
+
         await prisma.subscription.update({
             where: { id: subscription.id },
             data: {

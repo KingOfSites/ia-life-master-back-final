@@ -1,4 +1,4 @@
-import { MercadoPagoConfig, Preference, Payment, CardToken } from "mercadopago";
+import { MercadoPagoConfig, Preference, Payment, CardToken, PreApprovalPlan, PreApproval, Invoice } from "mercadopago";
 
 // Inicializa o cliente do Mercado Pago
 const client = new MercadoPagoConfig({
@@ -12,6 +12,9 @@ const client = new MercadoPagoConfig({
 export const preferenceClient = new Preference(client);
 export const paymentClient = new Payment(client);
 export const cardTokenClient = new CardToken(client);
+export const preApprovalPlanClient = new PreApprovalPlan(client);
+export const preApprovalClient = new PreApproval(client);
+export const invoiceClient = new Invoice(client);
 
 // Função auxiliar para gerar código de referência único
 export function generateReferenceId(userId: string, planType: string): string {
