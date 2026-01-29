@@ -5,15 +5,15 @@ import { preferenceClient, generateReferenceId } from "@/lib/mercadopago";
 import crypto from "crypto";
 const JWT_SECRET = process.env.JWT_SECRET || "supersecret";
 
-// Preços dos planos (em centavos) — R$ 1,00 para testes
+// Preços dos planos (em centavos)
 const PLAN_PRICES = {
     basic: {
-        monthly: 100, // R$ 1,00 (teste)
-        yearly: 100, // R$ 1,00 (teste)
+        monthly: 2990,   // R$ 29,90
+        yearly: 19900,   // R$ 199,00
     },
     complete: {
-        monthly: 100, // R$ 1,00 (teste)
-        yearly: 100, // R$ 1,00 (teste)
+        monthly: 4990,   // R$ 49,90
+        yearly: 39900,   // R$ 399,00
     },
 };
 

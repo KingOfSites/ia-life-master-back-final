@@ -67,16 +67,10 @@ export async function POST(req: NextRequest) {
             );
         }
 
-        // Calcular valor do pagamento (R$ 1,00 para testes)
+        // Calcular valor do pagamento (em centavos)
         const PLAN_PRICES = {
-            basic: {
-                monthly: 100,
-                yearly: 100,
-            },
-            complete: {
-                monthly: 100,
-                yearly: 100,
-            },
+            basic: { monthly: 2990, yearly: 19900 },
+            complete: { monthly: 4990, yearly: 39900 },
         };
 
         const basePrice = PLAN_PRICES[subscription.planType as keyof typeof PLAN_PRICES][subscription.billingPeriod as "monthly" | "yearly"];
