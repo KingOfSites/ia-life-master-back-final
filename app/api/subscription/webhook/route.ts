@@ -2,6 +2,7 @@ import { createHmac } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { paymentClient } from "@/lib/mercadopago";
+import { mapMpPaymentStatus } from "@/lib/payment-status";
 
 const WEBHOOK_TS_TOLERANCE_SEC = 300; // 5 min - rejeitar notificações muito antigas (replay)
 
@@ -207,7 +208,7 @@ export async function POST(req: NextRequest) {
                 mpPreferenceId: paymentAny.preference_id || null,
                 amount: payment.transaction_amount || 0,
                 currency: payment.currency_id || "BRL",
-                status: payment.status || "pending",
+                status: mapMpPaymentStatus(payment.status),
                 paymentMethod: payment.payment_method_id || null,
                 paymentType: payment.payment_type_id || null,
             };
@@ -265,7 +266,7 @@ export async function POST(req: NextRequest) {
                             await prisma.payment.update({
                                 where: { mpPaymentId: String(paymentId) },
                                 data: {
-                                    status: finalStatus,
+                                    status: mapMpPaymentStatus(finalStatus),
                                 },
                             });
 
@@ -280,15 +281,18 @@ export async function POST(req: NextRequest) {
                 }, 2000);
             }
 
-            // Atualizar status da assinatura baseado no status do pagamento
+            // Atualizar status da assinatura baseado no status do pagamento (pending_payment → resultado)
             if (payment.status === "approved") {
                 await activateSubscription(subscription, payment);
             } else if (payment.status === "rejected" || payment.status === "cancelled") {
                 await prisma.subscription.update({
                     where: { id: subscription.id },
-                    data: {
-                        status: "cancelled",
-                    },
+                    data: { status: "cancelled" },
+                });
+            } else if (payment.status === "expired") {
+                await prisma.subscription.update({
+                    where: { id: subscription.id },
+                    data: { status: "expired" },
                 });
             }
 

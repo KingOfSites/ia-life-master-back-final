@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import jwt from "jsonwebtoken";
 import { paymentClient } from "@/lib/mercadopago";
 import { prisma } from "@/lib/prisma";
+import { mapMpPaymentStatus } from "@/lib/payment-status";
 
 const JWT_SECRET = process.env.JWT_SECRET || "supersecret";
 
@@ -52,7 +53,7 @@ export async function GET(req: NextRequest) {
                 await prisma.payment.update({
                     where: { id: latestPayment.id },
                     data: {
-                        status: payment.status || "pending",
+                        status: mapMpPaymentStatus(payment.status),
                         amount: payment.transaction_amount || 0,
                     },
                 });
@@ -119,11 +120,11 @@ export async function GET(req: NextRequest) {
                         status: "approved",
                     } as any;
 
-                    // Atualizar no banco
+                    // Atualizar no banco (mapear approved → paid)
                     await prisma.payment.update({
                         where: { id: paymentRecord.id },
                         data: {
-                            status: "approved",
+                            status: mapMpPaymentStatus("approved"),
                         },
                     });
 
@@ -160,7 +161,7 @@ export async function GET(req: NextRequest) {
             await prisma.payment.update({
                 where: { id: paymentRecord.id },
                 data: {
-                    status: payment.status || "pending",
+                    status: mapMpPaymentStatus(payment.status),
                     amount: payment.transaction_amount || 0,
                 },
             });

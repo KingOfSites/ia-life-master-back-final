@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import jwt from "jsonwebtoken";
 import { paymentClient } from "@/lib/mercadopago";
+import { mapMpPaymentStatus } from "@/lib/payment-status";
 
 const JWT_SECRET = process.env.JWT_SECRET || "supersecret";
 
@@ -139,7 +140,7 @@ export async function POST(req: NextRequest) {
         const paymentRecord = await prisma.payment.upsert({
             where: { mpPaymentId: String(payment.id) },
             update: {
-                status: payment.status || "pending",
+                status: mapMpPaymentStatus(payment.status),
                 amount: payment.transaction_amount || 0,
                 paymentMethod: payment.payment_method_id || null,
                 paymentType: payment.payment_type_id || null,
@@ -150,7 +151,7 @@ export async function POST(req: NextRequest) {
                 mpPreferenceId: null,
                 amount: payment.transaction_amount || 0,
                 currency: payment.currency_id || "BRL",
-                status: payment.status || "pending",
+                status: mapMpPaymentStatus(payment.status),
                 paymentMethod: payment.payment_method_id || null,
                 paymentType: payment.payment_type_id || null,
             },
@@ -199,7 +200,7 @@ export async function POST(req: NextRequest) {
                     await prisma.payment.update({
                         where: { mpPaymentId: String(payment.id) },
                         data: {
-                            status: finalStatus,
+                            status: mapMpPaymentStatus(finalStatus),
                             amount: updatedPayment.transaction_amount || payment.transaction_amount || 0,
                         },
                     });
@@ -251,7 +252,7 @@ export async function POST(req: NextRequest) {
                 await prisma.payment.update({
                     where: { mpPaymentId: String(payment.id) },
                     data: {
-                        status: updatedPayment.status || "pending",
+                        status: mapMpPaymentStatus(updatedPayment.status),
                         amount: updatedPayment.transaction_amount || 0,
                     },
                 });

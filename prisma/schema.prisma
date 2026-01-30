@@ -257,7 +257,7 @@ model Subscription {
   userId            String    @unique
   planType          String // "basic" | "complete"
   billingPeriod     String // "monthly" | "yearly"
-  status            String    @default("pending") // "pending" | "active" | "cancelled" | "expired"
+  status            String    @default("pending") // "pending" | "pending_payment" | "active" | "cancelled" | "expired"
   mpPreferenceId    String? // ID da preferência do Mercado Pago
   mpSubscriptionId  String? // ID da assinatura recorrente no MP
   currentPeriodEnd  DateTime?
@@ -281,7 +281,7 @@ model Payment {
   mpPreferenceId String?
   amount         Float
   currency       String   @default("BRL")
-  status         String // "pending" | "approved" | "rejected" | "cancelled" | "refunded"
+  status         String // "pending" | "paid" | "rejected" | "cancelled" | "expired" | "refunded" (mapeado do MP)
   paymentMethod  String?
   paymentType    String?
   createdAt      DateTime @default(now())

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import jwt from "jsonwebtoken";
 import { paymentClient } from "@/lib/mercadopago";
+import { mapMpPaymentStatus } from "@/lib/payment-status";
 
 const JWT_SECRET = process.env.JWT_SECRET || "supersecret";
 
@@ -109,7 +110,7 @@ export async function POST(req: NextRequest) {
         await prisma.payment.upsert({
             where: { mpPaymentId: String(payment.id) },
             update: {
-                status: payment.status || "pending",
+                status: mapMpPaymentStatus(payment.status),
                 amount: payment.transaction_amount || 0,
                 paymentMethod: payment.payment_method_id || null,
                 paymentType: payment.payment_type_id || null,
@@ -120,10 +121,16 @@ export async function POST(req: NextRequest) {
                 mpPreferenceId: null,
                 amount: payment.transaction_amount || 0,
                 currency: payment.currency_id || "BRL",
-                status: payment.status || "pending",
+                status: mapMpPaymentStatus(payment.status),
                 paymentMethod: payment.payment_method_id || null,
                 paymentType: payment.payment_type_id || null,
             },
+        });
+
+        // Assinatura aguardando pagamento PIX (webhook atualizará: approved → active, cancelled → cancelled, expired → expired)
+        await prisma.subscription.update({
+            where: { id: subscription.id },
+            data: { status: "pending_payment" },
         });
 
         // Em ambiente de desenvolvimento/sandbox, auto-aprovar pagamentos PIX pendentes
@@ -138,7 +145,7 @@ export async function POST(req: NextRequest) {
                     await prisma.payment.update({
                         where: { mpPaymentId: String(payment.id) },
                         data: {
-                            status: "approved",
+                            status: mapMpPaymentStatus("approved"),
                         },
                     });
 
@@ -219,6 +226,13 @@ export async function POST(req: NextRequest) {
                     });
                 }
             }
+        } else if (payment.status === "rejected" || payment.status === "cancelled") {
+            await prisma.subscription.update({
+                where: { id: subscription.id },
+                data: {
+                    status: "cancelled",
+                },
+            });
         }
 
         // Retornar dados do PIX
