@@ -36,7 +36,24 @@ model User {
   achievements    Achievement[]
   notifications   Notification[]
   checkIns        CheckIn[]
+  dailyMetrics   DailyMetric[]
   passwordResets  PasswordReset[]
+}
+
+model DailyMetric {
+  id         String   @id @default(uuid())
+  userId     String
+  date       DateTime @db.Date
+  waterMl    Int      @default(0)
+  sleepHours Float    @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, date])
+  @@index([userId])
+  @@index([date])
 }
 
 model Onboarding {

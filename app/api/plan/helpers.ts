@@ -48,6 +48,16 @@ export const pickGoalLabel = (onboarding: OnboardingData | null | undefined) => 
   return onboarding?.goalPrimary ?? onboarding?.goals ?? "Plano personalizado";
 };
 
+/** Normaliza dietType para "vegan" | "vegetarian" | null (garante que rotina respeite vegano/vegetariano). */
+export function normalizeDietType(raw?: string | null): string | null {
+  if (raw == null || typeof raw !== "string") return null;
+  const d = raw.toLowerCase().trim();
+  if (!d) return null;
+  if (/vegan(o|a)?\b|^vegan$/.test(d)) return "vegan";
+  if (/vegetarian(o|a)?\b|^vegetarian$|vegetariano|vegetariana/.test(d)) return "vegetarian";
+  return null;
+}
+
 const normalizeGoal = (raw?: string | null) => {
   if (!raw) return "maintain";
   const g = raw.toLowerCase();
@@ -132,15 +142,15 @@ export const calcTargets = (onboarding: OnboardingData | null | undefined) => {
   );
 
   // -------------------------
-  // Fatores de atividade
+  // Fatores de atividade (padrão MyFitnessPal / apps populares)
   // -------------------------
   const activityFactorMap: Record<string, number> = {
     sedentary: 1.2,
-    regular: 1.45,
-    heavy: 1.6,
+    regular: 1.55,   // moderadamente ativo
+    heavy: 1.725,   // muito ativo
   };
 
-  const activityFactor = activityFactorMap[activityLevel] ?? 1.4;
+  const activityFactor = activityFactorMap[activityLevel] ?? 1.375;
 
   // -------------------------
   // BMR (Mifflin-St Jeor)
@@ -222,19 +232,26 @@ export const calcTargets = (onboarding: OnboardingData | null | undefined) => {
   calories = Math.min(calories, 3500);
 
   // -------------------------
-  // Macros (aprox.)
-  // Proteína: 1.2–1.4 g × peso (faixa recomendada)
+  // Macros: proteína por peso (padrão apps); resto = carbos + gordura, somando as calorias-alvo
+  // Proteína: 1.6 g/kg em perda (preservar músculo), 1.2 em ganho, 1.3 em manter
   // -------------------------
-  const proteinPerKg = goal === "gain" ? 1.2 : goal === "loss" ? 1.4 : 1.3;
+  const proteinPerKg = goal === "gain" ? 1.2 : goal === "loss" ? 1.6 : 1.3;
 
   const protein = weight
     ? Math.round(weight * proteinPerKg)
-    : Math.round((calories * 0.3) / 4);
+    : Math.round((calories * 0.28) / 4);
 
-  const carbs = Math.round((calories * 0.4) / 4);
-  const fat = Math.round((calories * 0.3) / 9);
+  const proteinKcal = protein * 4;
+  const remainingKcal = Math.max(0, calories - proteinKcal);
+  // Dividir o restante entre carboidratos e gordura (50/50) para bater com as calorias totais
+  const carbs = Math.round((remainingKcal * 0.5) / 4);
+  const fat = Math.round((remainingKcal * 0.5) / 9);
+  // Ajuste fino: garantir que proteína + carbos + gordura ≈ calorias (ajustar gordura se necessário)
+  const currentTotal = protein * 4 + carbs * 4 + fat * 9;
+  const fatAdjust = Math.round((calories - currentTotal) / 9);
+  const finalFat = Math.max(20, fat + fatAdjust);
 
-  return { calories, protein, carbs, fat };
+  return { calories, protein, carbs, fat: finalFat };
 };
 
 /**
@@ -268,33 +285,24 @@ REGRAS OBRIGATÓRIAS:
    - Homem: BMR = 10 × peso(kg) + 6.25 × altura(cm) - 5 × idade + 5
    - Mulher: BMR = 10 × peso(kg) + 6.25 × altura(cm) - 5 × idade - 161
 
-2. Calcule TDEE (Gasto Energético Total Diário):
+2. Calcule TDEE (Gasto Energético Total Diário) - use os multiplicadores padrão (como MyFitnessPal):
    - Sedentário: TDEE = BMR × 1.2
-   - Regular: TDEE = BMR × 1.45
-   - Intenso: TDEE = BMR × 1.6
+   - Regular/Moderado: TDEE = BMR × 1.55
+   - Muito ativo/Intenso: TDEE = BMR × 1.725
 
 3. Ajuste por objetivo:
-   - PERDER PESO (loss): Aplique déficit baseado na intensidade:
-     * Lento (slow): 15% de déficit
-     * Recomendado (recommended): 25% de déficit
-     * Rápido (fast): 30% de déficit
-     * Se houver "Perda semanal desejada" (kg/semana), use: déficit = kg/sem × 1100 kcal/dia
-   - GANHAR PESO (gain): Adicione excedente calórico:
-     * Base: 250 kcal sobre o TDEE
-     * Se houver "Ganho semanal desejado" (kg/semana), use excedente ≈ kg/sem × 1100 kcal/dia (faixa típica 0.2–0.7 kg/sem). Calorias = TDEE + excedente.
-     * Senão, ajuste pela diferença peso desejado − peso atual (ex.: +150 a +400 kcal)
-   - MANTER (maintain): Use TDEE sem ajustes
+   - PERDER PESO (loss): Déficit a partir do TDEE.
+     * Se houver "Perda semanal desejada" (kg/semana): déficit = kg/sem × 1100 kcal/dia (ex: 0.5 kg/sem ≈ 550 kcal, 1 kg/sem ≈ 1100 kcal).
+     * Senão: déficit 20% (lento), 25% (recomendado) ou 30% (rápido). Calorias = TDEE - déficit.
+   - GANHAR PESO (gain): TDEE + excedente. Base 250 kcal; ou excedente = ganho kg/sem × 1100 (faixa 0.2–0.7 kg/sem).
+   - MANTER (maintain): Calorias = TDEE sem ajustes.
 
-4. LIMITES DE SEGURANÇA:
-   - Calorias mínimas: 1200 kcal
-   - Calorias máximas: 3500 kcal
+4. LIMITES DE SEGURANÇA: Calorias entre 1200 e 3500 kcal.
 
-5. DISTRIBUIÇÃO DE MACROS:
-   - Proteína: 1.2–1.4 g por kg de peso corporal.
-     * Ganhar peso: 1.2 g/kg. Perder peso: 1.4 g/kg. Manter: 1.3 g/kg.
-     * Fórmula: proteína (g) = peso (kg) × fator, arredondar. Ou 30% das calorias/4 se peso não informado.
-   - Carboidratos: 40% das calorias (dividir por 4 para gramas)
-   - Gorduras: 30% das calorias (dividir por 9 para gramas)
+5. MACROS (devem SOMAR as calorias-alvo):
+   - Proteína (g) = peso (kg) × fator: perder peso 1.6 g/kg, ganhar 1.2 g/kg, manter 1.3 g/kg. (Proteína em kcal = proteína × 4.)
+   - Restante de calorias = calorias-alvo - (proteína × 4). Divida o restante 50% carboidratos e 50% gordura: carbs (g) = (restante × 0.5) / 4, fat (g) = (restante × 0.5) / 9.
+   - Arredonde e ajuste gordura se necessário para que proteína×4 + carbs×4 + fat×9 = calorias-alvo.
 
 6. Retorne APENAS um JSON válido no formato:
 {
@@ -371,6 +379,47 @@ Calcule e retorne o JSON com calories, protein, carbs, fat e explanation.`;
 }
 
 
+/** Conjuntos de refeições vegetarianas (sem carne/peixe; pode ter ovos e laticínios) para rotina gerada pelo botão "Gerar rotina alimentar". */
+const descSetsVegetarian = [
+  { cafe: "Aveia overnight com frutas, chia e mel ou panqueca de aveia e banana com mel.", lanche1: "Iogurte grego + castanhas do Pará; ou queijo branco + fruta.", almoco: "Grão-de-bico refogado com legumes, arroz integral e salada de folhas verdes.", lanche2: "Sanduíche integral com homus e vegetais; ou shake proteico de chocolate.", jantar: "Omelete de ovos com espinafre e queijo + legumes salteados; salada.", ceia: "Iogurte grego + frutas vermelhas ou castanhas." },
+  { cafe: "Tapioca com queijo e tomate + fruta cítrica.", lanche1: "Barra proteica ou iogurte + sementes.", almoco: "Lentilha com legumes, arroz integral e salada colorida.", lanche2: "Fruta + pasta de amendoim; ou wrap de homus com vegetais.", jantar: "Omelete com legumes e queijo; salada verde.", ceia: "Leite + cacau ou iogurte com canela." },
+  { cafe: "Pão integral + cottage + tomate + fruta.", lanche1: "Mix de nuts ou ovo cozido + fruta.", almoco: "Feijão preto com abóbora, arroz integral, couve refogada e salada.", lanche2: "Iogurte grego + granola moderada.", jantar: "Omelete de claras com espinafre e queijo; salada.", ceia: "Chá + queijo branco ou iogurte." },
+  { cafe: "Panqueca de aveia e banana + mel ou frutas vermelhas.", lanche1: "Smoothie verde (espinafre + banana) ou mix de frutas secas.", almoco: "Quinoa com grão-de-bico, legumes no vapor e salada de rúcula.", lanche2: "Hummus com palitos de vegetais ou torrada integral com abacate.", jantar: "Tofu grelhado com legumes e purê de abóbora; salada.", ceia: "Chá de camomila + amêndoas ou queijo cottage com morangos." },
+  { cafe: "Aveia overnight com frutas e chia ou crepioca doce com banana.", lanche1: "Maçã com pasta de amendoim ou iogurte natural com granola.", almoco: "Falafel com homus, arroz integral, feijão e salada de folhas.", lanche2: "Biscoito de arroz com pasta de amendoim ou smoothie com banana.", jantar: "Berinjela à parmegiana (queijo), purê de batata-doce e salada de rúcula.", ceia: "Leite morno com mel ou iogurte grego com nozes." },
+  { cafe: "Omelete de 2-3 ovos com espinafre e queijo, torrada integral e suco de laranja.", lanche1: "Banana com canela ou iogurte com sementes de linhaça e mel.", almoco: "Grão-de-bico ao curry, arroz integral e salada de tomate e pepino.", lanche2: "Sanduíche de pão integral com queijo e alface ou wrap vegetariano com homus.", jantar: "Sopa de lentilha e legumes ou salada completa com grão-de-bico e tahine.", ceia: "Chá verde + castanhas do Pará ou iogurte com frutas vermelhas." },
+  { cafe: "Açaí bowl com granola e frutas ou pão integral com ovo mexido e tomate.", lanche1: "Pera ou uvas com queijo minas ou barra de proteína.", almoco: "Abóbora assada com grão-de-bico, arroz e couve refogada.", lanche2: "Biscoito integral com requeijão light ou smoothie de frutas.", jantar: "Risoto de cogumelos, legumes no vapor e salada.", ceia: "Chá de ervas + mix de sementes ou leite com cacau." },
+  { cafe: "Waffle integral com frutas e mel ou crepioca com queijo e tomate.", lanche1: "Iogurte grego com morangos e granola ou mix de frutas secas.", almoco: "Strogonoff de grão-de-bico, arroz integral e salada de alface e cenoura.", lanche2: "Torrada com abacate e ovo poché ou smoothie com frutas.", jantar: "Tofu ao molho de soja, purê de abóbora e salada de agrião.", ceia: "Chá de hortelã + amêndoas ou iogurte natural com mel." },
+  { cafe: "Panqueca de banana e aveia com mel ou pão integral com homus e pepino.", lanche1: "Mamão com chia ou iogurte com granola e frutas vermelhas.", almoco: "Lentilha com abóbora e arroz, couve refogada e salada.", lanche2: "Biscoito de arroz com pasta de amendoim ou wrap de homus.", jantar: "Cogumelos salteados com arroz integral e salada de pepino.", ceia: "Chá de gengibre + nozes ou queijo cottage com mel." },
+  { cafe: "Aveia cozida com banana, canela e mel ou tapioca com queijo e orégano.", lanche1: "Maçã verde ou pera com canela ou iogurte com linhaça e mel.", almoco: "Feijão preto com batata-doce e couve, arroz integral e salada.", lanche2: "Sanduíche de pão integral com homus e alface ou smoothie.", jantar: "Omelete de claras com espinafre e queijo, salada verde e purê de abóbora.", ceia: "Chá de camomila + castanhas ou leite morno com mel e canela." },
+];
+
+/** Conjuntos de refeições veganas (sem nenhum produto animal) para rotina gerada pelo botão "Gerar rotina alimentar". */
+const descSetsVegan = [
+  { cafe: "Aveia overnight com frutas, chia e mel (leite vegetal).", lanche1: "Iogurte vegetal + castanhas do Pará; ou fruta com pasta de amendoim.", almoco: "Grão-de-bico refogado com legumes, arroz integral e salada.", lanche2: "Sanduíche integral com homus e vegetais; ou smoothie com banana.", jantar: "Tofu grelhado com legumes e purê de abóbora; salada.", ceia: "Iogurte vegetal + frutas vermelhas ou castanhas." },
+  { cafe: "Tapioca com homus e tomate + fruta.", lanche1: "Barra de frutas e nuts ou iogurte vegetal + sementes.", almoco: "Lentilha com legumes, arroz integral e salada colorida.", lanche2: "Fruta + pasta de amendoim; ou wrap de homus com vegetais.", jantar: "Grão-de-bico com espinafre e arroz; salada.", ceia: "Leite vegetal morno com cacau e canela." },
+  { cafe: "Pão integral com homus e pepino + fruta.", lanche1: "Mix de nuts ou fruta seca + fruta.", almoco: "Feijão preto com abóbora, arroz integral, couve e salada.", lanche2: "Iogurte vegetal + granola.", jantar: "Berinjela assada com tomate e manjericão; purê de batata-doce.", ceia: "Chá + mix de sementes ou iogurte vegetal." },
+  { cafe: "Panqueca de aveia e banana (sem ovo) + mel.", lanche1: "Smoothie verde (espinafre, banana, leite vegetal) ou mix de frutas secas.", almoco: "Quinoa com grão-de-bico e legumes; salada de rúcula.", lanche2: "Hummus com palitos de vegetais ou torrada com abacate.", jantar: "Tempeh com legumes salteados e purê de abóbora.", ceia: "Chá de camomila + amêndoas ou pudim de chia vegano." },
+  { cafe: "Aveia overnight com frutas e chia (leite vegetal).", lanche1: "Maçã com pasta de amendoim ou iogurte vegetal com granola.", almoco: "Falafel com homus e salada; arroz integral.", lanche2: "Biscoito de arroz com pasta de amendoim ou smoothie de banana.", jantar: "Curry de grão-de-bico com arroz e legumes.", ceia: "Leite vegetal morno com mel ou iogurte vegetal com nozes." },
+  { cafe: "Smoothie bowl de açaí com granola e banana.", lanche1: "Banana com canela ou iogurte vegetal com linhaça e mel.", almoco: "Grão-de-bico ao curry, arroz integral e salada de tomate e pepino.", lanche2: "Sanduíche de homus com vegetais ou wrap de falafel.", jantar: "Sopa de lentilha e legumes ou salada de quinoa com abacate.", ceia: "Chá verde + castanhas ou iogurte vegetal com frutas." },
+  { cafe: "Pão integral com abacate e tomate ou bowl de frutas com granola.", lanche1: "Pera ou uvas ou mix de nuts.", almoco: "Abóbora assada com grão-de-bico, arroz e couve.", lanche2: "Biscoito integral com homus ou smoothie de frutas.", jantar: "Risoto de cogumelos ou legumes assados com ervas.", ceia: "Chá de ervas + mix de sementes ou leite vegetal com cacau." },
+  { cafe: "Waffle de aveia com frutas e mel ou crepioca doce com banana.", lanche1: "Iogurte vegetal com morangos e granola.", almoco: "Strogonoff de cogumelos ou grão-de-bico, arroz e salada.", lanche2: "Torrada com abacate ou smoothie com frutas.", jantar: "Tofu ao molho de soja e gergelim, legumes e salada.", ceia: "Chá de hortelã + amêndoas ou chocolate quente com leite vegetal." },
+  { cafe: "Panqueca de banana vegana com mel ou pão com homus e pepino.", lanche1: "Mamão com linhaça ou iogurte vegetal com granola.", almoco: "Lentilha com abóbora e arroz; salada de folhas.", lanche2: "Biscoito de arroz com pasta de amendoim ou wrap de homus.", jantar: "Cogumelos recheados com espinafre; purê de batata-doce.", ceia: "Chá de gengibre + nozes ou vitamina de abacate vegana." },
+  { cafe: "Aveia cozida com banana e canela (leite vegetal).", lanche1: "Maçã ou pera com canela ou iogurte vegetal com mel.", almoco: "Feijão preto com batata-doce e couve; arroz e salada.", lanche2: "Sanduíche de homus com vegetais ou smoothie.", jantar: "Escondidinho de lentilha com batata-doce; salada.", ceia: "Chá de camomila + castanhas ou leite vegetal com mel." },
+];
+
+/** Conjunto padrão (com carne/peixe) - usado só quando dietType não é vegano nem vegetariano. */
+const descSetsDefault = [
+  { cafe: "Ovos mexidos com espinafre + aveia + fruta; café ou chá sem açúcar.", lanche1: "Iogurte grego + castanhas do Pará; ou queijo branco + fruta.", almoco: "Frango grelhado, arroz integral, brócolis no vapor e salada de folhas verdes.", lanche2: "Sanduíche integral com frango desfiado; ou shake proteico de chocolate.", jantar: "Salmão grelhado + legumes salteados; carbo moderado se treinar à noite.", ceia: "Iogurte grego + frutas vermelhas ou castanhas." },
+  { cafe: "Tapioca com ovo/queijo + fruta cítrica.", lanche1: "Barra proteica ou iogurte + sementes.", almoco: "Carne magra/peixe, fonte de carboidrato (arroz/batata/mandioca) e salada colorida.", lanche2: "Fruta + pasta de amendoim; ou wrap de frango.", jantar: "Peixe/frango + legumes salteados; pouco carbo.", ceia: "Leite/veg + cacau ou kefir + canela." },
+  { cafe: "Pão integral + cottage/peito de peru + fruta.", lanche1: "Mix de nuts ou ovo cozido + fruta.", almoco: "Proteína, grão (feijão/grão-de-bico) e folhas.", lanche2: "Iogurte grego + granola moderada.", jantar: "Omelete de claras/ovos + legumes; salada.", ceia: "Chá + fonte proteica leve." },
+  { cafe: "Panqueca proteica (ovo + aveia + banana) + mel ou frutas vermelhas.", lanche1: "Smoothie verde (espinafre + banana + proteína em pó) ou mix de frutas secas.", almoco: "Frango grelhado/peixe assado, quinoa ou batata-doce, brócolis e abobrinha grelhada.", lanche2: "Hummus com palitos de vegetais ou torrada integral com abacate e ovo.", jantar: "Salmão/atum grelhado, purê de abóbora e aspargos ou couve refogada.", ceia: "Chá de camomila + amêndoas ou queijo cottage com morangos." },
+  { cafe: "Aveia overnight (aveia + iogurte + frutas + chia) ou crepioca com recheio de frango desfiado.", lanche1: "Maçã com pasta de amendoim ou iogurte natural com granola caseira.", almoco: "Carne moída magra, arroz integral ou macarrão integral, feijão e salada de folhas verdes.", lanche2: "Biscoito de arroz com pasta de amendoim ou shake de whey protein com banana.", jantar: "Peito de frango ao molho de tomate, purê de batata-doce e salada de rúcula.", ceia: "Leite morno com mel ou iogurte grego com nozes." },
+  { cafe: "Omelete de 2-3 ovos com espinafre e queijo, torrada integral e suco de laranja natural.", lanche1: "Banana com canela ou iogurte com sementes de linhaça e mel.", almoco: "Peixe assado (salmão/atum), arroz integral, feijão preto e salada de tomate e pepino.", lanche2: "Sanduíche de pão integral com peito de peru, queijo e alface ou wrap de frango com vegetais.", jantar: "Sopa de legumes com frango desfiado ou salada completa com grão-de-bico e atum.", ceia: "Chá verde + castanhas do Pará ou iogurte com frutas vermelhas." },
+  { cafe: "Açaí bowl com granola, frutas e mel ou pão de forma integral com ovo mexido e tomate.", lanche1: "Pera ou uvas com queijo minas ou barra de proteína caseira.", almoco: "Carne assada (patinho/alcatra), purê de batata ou mandioca, couve refogada e salada de beterraba.", lanche2: "Biscoito integral com requeijão light ou smoothie de frutas com proteína.", jantar: "Salmão ao forno com ervas, arroz de couve-flor e legumes no vapor.", ceia: "Chá de ervas + mix de sementes ou leite com cacau em pó." },
+  { cafe: "Waffle integral com frutas e mel ou crepioca com ovo, queijo e tomate.", lanche1: "Iogurte grego com morangos e granola ou mix de frutas secas e castanhas.", almoco: "Frango à parmegiana light, macarrão integral e salada de alface e cenoura ralada.", lanche2: "Torrada com abacate amassado e ovo poché ou shake de proteína com frutas.", jantar: "Peixe grelhado (tilápia/merluza), purê de abóbora e salada de agrião.", ceia: "Chá de hortelã + amêndoas ou iogurte natural com mel." },
+  { cafe: "Panqueca de banana e aveia com mel ou pão integral com cream cheese e salmão defumado.", lanche1: "Mamão com sementes de chia ou iogurte com granola e frutas vermelhas.", almoco: "Carne de panela, arroz integral, feijão carioca e salada de repolho e cenoura.", lanche2: "Biscoito de arroz com pasta de amendoim ou wrap de atum com vegetais.", jantar: "Frango grelhado com legumes e purê de batata-doce.", ceia: "Chá verde + castanhas ou iogurte com frutas vermelhas." },
+];
+
 const buildMeals = (
   totalCalories: number,
   targetProtein: number,
@@ -378,12 +427,20 @@ const buildMeals = (
   targetFat: number,
   variationSeed: number,
   mealsPerDay?: number | null,
+  dietType?: string | null,
 ) => {
   const base = totalCalories || 2000;
   const mealsCountRaw = typeof mealsPerDay === "number" && mealsPerDay > 0 ? mealsPerDay : null;
   const mealsCount = mealsCountRaw ? Math.max(2, Math.min(6, Math.round(mealsCountRaw))) : 6;
-  
-  console.error(`[PLAN] buildMeals - mealsPerDay: ${mealsPerDay}, mealsCountRaw: ${mealsCountRaw}, mealsCount: ${mealsCount}`);
+  // Usar normalizeDietType como única fonte de verdade — nunca usar conjunto com carne para vegano/vegetariano
+  const normalizedDiet = normalizeDietType(dietType);
+  const useVegan = normalizedDiet === "vegan";
+  const useVegetarian = normalizedDiet === "vegetarian";
+  const descSetsToUse = useVegan ? descSetsVegan : useVegetarian ? descSetsVegetarian : descSetsDefault;
+  if ((dietType || "").trim() && !useVegan && !useVegetarian) {
+    console.error(`[PLAN] buildMeals - dietType ignorado (não é vegano/vegetariano): "${dietType}" -> normalized: ${normalizedDiet ?? "null"}`);
+  }
+  console.error(`[PLAN] buildMeals - mealsPerDay: ${mealsPerDay}, dietType: "${dietType ?? ""}", normalized: "${normalizedDiet ?? ""}", useVegan: ${useVegan}, useVegetarian: ${useVegetarian}, set: ${useVegan ? "vegan" : useVegetarian ? "vegetarian" : "default"}`);
 
   // pequenas variações de divisão por dia (seed 0-6)
   const ratioPresets = [
@@ -402,193 +459,51 @@ const buildMeals = (
     // cutting mais distribuído
     [0.19, 0.08, 0.31, 0.09, 0.23, 0.05],
   ];
-  
-
-  const descSets = [
-    {
-      cafe: "Ovos mexidos com espinafre + aveia + fruta; café ou chá sem açúcar.",
-      lanche1: "Iogurte grego + castanhas do Pará; ou queijo branco + fruta.",
-      almoco: "Frango grelhado, arroz integral, brócolis no vapor e salada de folhas verdes.",
-      lanche2: "Sanduíche integral com frango desfiado; ou shake proteico de chocolate.",
-      jantar: "Salmão grelhado + legumes salteados; carbo moderado se treinar à noite.",
-      ceia: "Iogurte grego + frutas vermelhas ou castanhas.",
-    },
-    {
-      cafe: "Tapioca com ovo/queijo + fruta cítrica.",
-      lanche1: "Barra proteica ou iogurte + sementes.",
-      almoco: "Carne magra/peixe, fonte de carboidrato (arroz/batata/mandioca) e salada colorida.",
-      lanche2: "Fruta + pasta de amendoim; ou wrap de frango.",
-      jantar: "Peixe/frango + legumes salteados; pouco carbo.",
-      ceia: "Leite/veg + cacau ou kefir + canela.",
-    },
-    {
-      cafe: "Pão integral + cottage/peito de peru + fruta.",
-      lanche1: "Mix de nuts ou ovo cozido + fruta.",
-      almoco: "Proteína, grão (feijão/grão-de-bico) e folhas.",
-      lanche2: "Iogurte grego + granola moderada.",
-      jantar: "Omelete de claras/ovos + legumes; salada.",
-      ceia: "Chá + fonte proteica leve.",
-    },
-    {
-      cafe: "Panqueca proteica (ovo + aveia + banana) + mel ou frutas vermelhas.",
-      lanche1: "Smoothie verde (espinafre + banana + proteína em pó) ou mix de frutas secas.",
-      almoco: "Frango grelhado/peixe assado, quinoa ou batata-doce, brócolis e abobrinha grelhada.",
-      lanche2: "Hummus com palitos de vegetais ou torrada integral com abacate e ovo.",
-      jantar: "Salmão/atum grelhado, purê de abóbora e aspargos ou couve refogada.",
-      ceia: "Chá de camomila + amêndoas ou queijo cottage com morangos.",
-    },
-    {
-      cafe: "Aveia overnight (aveia + iogurte + frutas + chia) ou crepioca com recheio de frango desfiado.",
-      lanche1: "Maçã com pasta de amendoim ou iogurte natural com granola caseira.",
-      almoco: "Carne moída magra, arroz integral ou macarrão integral, feijão e salada de folhas verdes.",
-      lanche2: "Biscoito de arroz com pasta de amendoim ou shake de whey protein com banana.",
-      jantar: "Peito de frango ao molho de tomate, purê de batata-doce e salada de rúcula.",
-      ceia: "Leite morno com mel ou iogurte grego com nozes.",
-    },
-    {
-      cafe: "Omelete de 2-3 ovos com espinafre e queijo, torrada integral e suco de laranja natural.",
-      lanche1: "Banana com canela ou iogurte com sementes de linhaça e mel.",
-      almoco: "Peixe assado (salmão/atum), arroz integral, feijão preto e salada de tomate e pepino.",
-      lanche2: "Sanduíche de pão integral com peito de peru, queijo e alface ou wrap de frango com vegetais.",
-      jantar: "Sopa de legumes com frango desfiado ou salada completa com grão-de-bico e atum.",
-      ceia: "Chá verde + castanhas do Pará ou iogurte com frutas vermelhas.",
-    },
-    {
-      cafe: "Açaí bowl com granola, frutas e mel ou pão de forma integral com ovo mexido e tomate.",
-      lanche1: "Pera ou uvas com queijo minas ou barra de proteína caseira.",
-      almoco: "Carne assada (patinho/alcatra), purê de batata ou mandioca, couve refogada e salada de beterraba.",
-      lanche2: "Biscoito integral com requeijão light ou smoothie de frutas com proteína.",
-      jantar: "Salmão ao forno com ervas, arroz de couve-flor e legumes no vapor.",
-      ceia: "Chá de ervas + mix de sementes ou leite com cacau em pó.",
-    },
-    {
-      cafe: "Waffle integral com frutas e mel ou crepioca com ovo, queijo e tomate.",
-      lanche1: "Iogurte grego com morangos e granola ou mix de frutas secas e castanhas.",
-      almoco: "Frango à parmegiana light, macarrão integral e salada de alface e cenoura ralada.",
-      lanche2: "Torrada com abacate amassado e ovo poché ou shake de proteína com frutas.",
-      jantar: "Peixe grelhado (tilápia/merluza), purê de abóbora e salada de agrião.",
-      ceia: "Chá de hortelã + amêndoas ou iogurte natural com mel.",
-    },
-    {
-      cafe: "Panqueca de banana e aveia com mel ou pão integral com cream cheese e salmão defumado.",
-      lanche1: "Mamão com sementes de chia ou iogurte com granola e frutas vermelhas.",
-      almoco: "Carne de panela, arroz integral, feijão carioca e salada de repolho e cenoura.",
-      lanche2: "Biscoito de arroz com pasta de amendoim ou wrap de atum com vegetais.",
-      jantar: "Frango xadrez com legumes, arroz integral e salada de pepino.",
-      ceia: "Chá de gengibre + nozes ou queijo cottage com mel.",
-    },
-    {
-      cafe: "Aveia cozida com banana, canela e mel ou tapioca com ovo, queijo e orégano.",
-      lanche1: "Maçã verde ou pera com canela ou iogurte com linhaça e mel.",
-      almoco: "Peixe grelhado (sardinha/atum), batata-doce assada, brócolis e salada de tomate.",
-      lanche2: "Sanduíche de pão integral com frango desfiado e alface ou shake proteico.",
-      jantar: "Omelete de claras com espinafre e queijo, salada verde e purê de abóbora.",
-      ceia: "Chá de camomila + castanhas ou leite morno com mel e canela.",
-    },
-    {
-      cafe: "Smoothie bowl (açaí/banana) com granola e frutas ou pão integral com ovo, queijo e rúcula.",
-      lanche1: "Mix de frutas secas (damasco, uva passa) ou iogurte com sementes de girassol.",
-      almoco: "Carne grelhada (picanha magra/contrafilé), arroz integral, feijão e salada de alface e tomate.",
-      lanche2: "Torrada com homus e tomate ou shake de proteína com aveia.",
-      jantar: "Peixe ao molho de maracujá, purê de batata-doce e salada de agrião e tomate.",
-      ceia: "Chá de erva-doce + amêndoas ou iogurte grego com frutas.",
-    },
-    {
-      cafe: "Crepioca com recheio de frango e queijo ou panqueca de aveia com frutas e mel.",
-      lanche1: "Banana com canela e pasta de amendoim ou iogurte com granola e morangos.",
-      almoco: "Frango grelhado, arroz integral, feijão preto e salada de repolho roxo.",
-      lanche2: "Biscoito integral com requeijão ou smoothie verde com proteína.",
-      jantar: "Salmão ao forno com ervas, arroz de couve-flor e aspargos grelhados.",
-      ceia: "Chá de hortelã + castanhas do Pará ou leite com cacau em pó.",
-    },
-    {
-      cafe: "Ovos mexidos com espinafre e queijo, torrada integral e suco de laranja.",
-      lanche1: "Maçã com canela ou iogurte grego com sementes de linhaça.",
-      almoco: "Carne moída com abóbora, arroz integral, feijão e salada de alface e pepino.",
-      lanche2: "Sanduíche de pão integral com atum e alface ou shake de whey com banana.",
-      jantar: "Peixe grelhado, purê de mandioca e salada de rúcula e tomate.",
-      ceia: "Chá de camomila + nozes ou queijo cottage com mel.",
-    },
-    {
-      cafe: "Aveia overnight com frutas, chia e mel ou pão integral com ovo, queijo e tomate.",
-      lanche1: "Pera ou uvas com queijo minas ou barra de proteína.",
-      almoco: "Frango à parmegiana, macarrão integral e salada de folhas verdes.",
-      lanche2: "Torrada com abacate e ovo ou smoothie de frutas com proteína.",
-      jantar: "Salmão grelhado, batata-doce assada e brócolis no vapor.",
-      ceia: "Chá verde + amêndoas ou iogurte com frutas vermelhas.",
-    },
-    {
-      cafe: "Panqueca proteica com frutas e mel ou crepioca com ovo, queijo e orégano.",
-      lanche1: "Mix de nuts ou iogurte com granola e frutas.",
-      almoco: "Carne assada, purê de batata-doce, couve refogada e salada de beterraba.",
-      lanche2: "Biscoito de arroz com pasta de amendoim ou wrap de frango.",
-      jantar: "Peixe ao forno, arroz de couve-flor e legumes salteados.",
-      ceia: "Chá de ervas + castanhas ou leite morno com mel.",
-    },
-    {
-      cafe: "Waffle integral com frutas e mel ou tapioca com ovo, queijo e tomate.",
-      lanche1: "Iogurte grego com morangos ou mix de frutas secas.",
-      almoco: "Frango grelhado, arroz integral, feijão e salada colorida.",
-      lanche2: "Sanduíche integral com peito de peru ou shake proteico.",
-      jantar: "Omelete de claras com legumes, salada verde e purê de abóbora.",
-      ceia: "Chá de hortelã + nozes ou iogurte natural com mel.",
-    },
-    {
-      cafe: "Smoothie bowl com granola e frutas ou pão integral com ovo, queijo e rúcula.",
-      lanche1: "Banana com pasta de amendoim ou iogurte com sementes.",
-      almoco: "Peixe grelhado, batata-doce, brócolis e salada de tomate.",
-      lanche2: "Torrada com homus ou shake de proteína com aveia.",
-      jantar: "Frango xadrez com legumes, arroz integral e salada de pepino.",
-      ceia: "Chá de camomila + amêndoas ou queijo cottage com frutas.",
-    },
-  ];
 
   const ratio = ratioPresets[variationSeed % ratioPresets.length];
-  
-  // Usar diferentes seeds para cada refeição para garantir alimentos diferentes
-  // Multiplicar por números primos para garantir mais variação entre refeições
+
   const split = [
     { 
       title: "Café da manhã", 
       ratio: ratio[0], 
       startTime: "07:00", 
       endTime: "07:30", 
-      description: descSets[(variationSeed * 2 + 0) % descSets.length].cafe 
+      description: descSetsToUse[(variationSeed * 2 + 0) % descSetsToUse.length].cafe 
     },
     { 
       title: "Lanche da manhã", 
       ratio: ratio[1], 
       startTime: "10:00", 
       endTime: "10:15", 
-      description: descSets[(variationSeed * 3 + 1) % descSets.length].lanche1 
+      description: descSetsToUse[(variationSeed * 3 + 1) % descSetsToUse.length].lanche1 
     },
     { 
       title: "Almoço", 
       ratio: ratio[2], 
       startTime: "12:30", 
       endTime: "13:00", 
-      description: descSets[(variationSeed * 5 + 2) % descSets.length].almoco 
+      description: descSetsToUse[(variationSeed * 5 + 2) % descSetsToUse.length].almoco 
     },
     { 
       title: "Lanche da tarde", 
       ratio: ratio[3], 
       startTime: "16:00", 
       endTime: "16:20", 
-      description: descSets[(variationSeed * 7 + 3) % descSets.length].lanche2 
+      description: descSetsToUse[(variationSeed * 7 + 3) % descSetsToUse.length].lanche2 
     },
     { 
       title: "Jantar", 
       ratio: ratio[4], 
       startTime: "19:30", 
       endTime: "20:00", 
-      description: descSets[(variationSeed * 11 + 4) % descSets.length].jantar 
+      description: descSetsToUse[(variationSeed * 11 + 4) % descSetsToUse.length].jantar 
     },
     { 
       title: "Ceia (opcional)", 
       ratio: ratio[5], 
       startTime: "22:00", 
       endTime: "22:15", 
-      description: descSets[(variationSeed * 13 + 5) % descSets.length].ceia 
+      description: descSetsToUse[(variationSeed * 13 + 5) % descSetsToUse.length].ceia 
     },
   ];
 
@@ -1231,9 +1146,12 @@ export async function generatePlanDraftForDate(options: {
   const baseSeed = targetDate.getDay();
   const variationSeed = (baseSeed + variationOffset) % 20; // Aumentado de 7 para 20 para mais variação
 
+  const rawDiet = (onboarding as any)?.dietType ?? null;
+  const dietType = normalizeDietType(rawDiet);
   console.log(`[PLAN] ========== generatePlanDraftForDate ==========`);
-  console.log(`[PLAN] Calling buildMeals with mealsPerDay: ${mealsPerDay} (type: ${typeof mealsPerDay}, value: ${mealsPerDay})`);
-  const meals = buildMeals(calories, protein, carbs, fat, variationSeed, mealsPerDay);
+  console.log(`[PLAN] dietType raw: ${rawDiet ?? "null"} -> normalized: ${dietType ?? "none"}`);
+  console.log(`[PLAN] Calling buildMeals with mealsPerDay: ${mealsPerDay}, dietType: ${dietType || "none"}`);
+  const meals = buildMeals(calories, protein, carbs, fat, variationSeed, mealsPerDay, dietType);
   console.log(`[PLAN] buildMeals returned ${meals.length} meals`);
   console.log(`[PLAN] Meals titles: ${meals.map(m => m.title).join(", ")}`);
   const workouts = buildWorkouts(onboarding as any, workoutsPerDay, variationSeed);

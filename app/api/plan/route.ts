@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { NextResponse } from "next/server";
 import jwt from "jsonwebtoken";
-import { createPlanForDate, normalizeDate } from "./helpers";
+import { createPlanForDate, normalizeDate, normalizeDietType } from "./helpers";
 
 export const runtime = "nodejs";
 
@@ -87,7 +87,27 @@ export async function POST(req: Request) {
   const workoutsPerDay = body?.workoutsPerDay;
   const customPeriod = body?.customPeriod as { type: "days" | "weeks" | "months"; value: number } | undefined;
   const replaceWhat = body?.replaceWhat as "all" | "meals" | "workouts" | undefined;
-  
+  const dietTypeFromBody = body?.dietType != null ? String(body.dietType).trim() : null;
+
+  // Buscar onboarding do usuário para respeitar dietType (vegano/vegetariano/outros) em toda geração de plano
+  const onboardingFromDb = await prisma.onboarding.findUnique({ where: { userId } }).catch(() => null);
+  const dbDietType = (onboardingFromDb as any)?.dietType ?? null;
+  const rawDiet = dietTypeFromBody ?? dbDietType;
+  // Normalizar para "vegetarian" | "vegan" (buildMeals usa isso; evita "vegetariano" não reconhecido)
+  const effectiveDietType = normalizeDietType(rawDiet) ?? rawDiet;
+  const onboarding = onboardingFromDb
+    ? { ...(onboardingFromDb as object), dietType: effectiveDietType }
+    : (effectiveDietType ? { dietType: effectiveDietType } : null);
+  console.log(`[PLAN] POST /api/plan - dietType: body=${dietTypeFromBody ?? "—"}, db=${dbDietType ?? "—"}, effective=${effectiveDietType ?? "outros"}`);
+
+  // Persistir dietType no onboarding quando vier no body (vegetariano/vegano) para próximas gerações
+  if (dietTypeFromBody && (effectiveDietType === "vegetarian" || effectiveDietType === "vegan") && onboardingFromDb) {
+    await prisma.onboarding.update({
+      where: { userId },
+      data: { dietType: effectiveDietType },
+    }).catch((err) => console.warn("[PLAN] Falha ao persistir dietType no onboarding:", err));
+  }
+
   console.log(`[PLAN] POST /api/plan - Received: range=${range}, mealsPerDay=${mealsPerDay}, workoutsPerDay=${workoutsPerDay}, replaceWhat=${replaceWhat}`);
 
   // gera período customizado (dias, semanas ou meses)
@@ -133,7 +153,7 @@ export async function POST(req: Request) {
           const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
           console.log(`[PLAN] Progress: ${i + 1}/${days.length} plans created (${elapsed}s elapsed)`);
         }
-        const plan = await createPlanForDate({ userId, date: d, mealsPerDay, workoutsPerDay, replaceWhat });
+        const plan = await createPlanForDate({ userId, date: d, onboarding, mealsPerDay, workoutsPerDay, replaceWhat });
         plans.push(plan);
       } catch (error) {
         console.error(`[PLAN] Error creating plan for date ${d.toISOString()}:`, error);
@@ -160,7 +180,7 @@ export async function POST(req: Request) {
     const plans = [];
     for (let i = 0; i < days.length; i++) {
       const d = days[i];
-      const plan = await createPlanForDate({ userId, date: d, mealsPerDay, workoutsPerDay, replaceWhat });
+      const plan = await createPlanForDate({ userId, date: d, onboarding, mealsPerDay, workoutsPerDay, replaceWhat });
       plans.push(plan);
     }
     console.log(`[PLAN] Successfully generated ${plans.length} plans for week`);
@@ -169,7 +189,7 @@ export async function POST(req: Request) {
   }
 
   // gera apenas o dia informado (ou hoje)
-  const plan = await createPlanForDate({ userId, date: body?.date, mealsPerDay, workoutsPerDay, replaceWhat });
+  const plan = await createPlanForDate({ userId, date: body?.date, onboarding, mealsPerDay, workoutsPerDay, replaceWhat });
   return NextResponse.json(plan, { status: 201 });
 }
 

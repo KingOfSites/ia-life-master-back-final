@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import jwt from "jsonwebtoken"
-import { createPlanForDate } from "../plan/helpers"
+import { createPlanForDate, normalizeDietType } from "../plan/helpers"
 
 export const runtime = "nodejs"
 
@@ -61,6 +61,7 @@ export async function POST(req: Request) {
 
   // Adicionar campos opcionais apenas se existirem no schema (evita erro se Prisma Client não foi regenerado)
   if (data.heardFrom !== undefined) updateData.heardFrom = data.heardFrom ?? null
+  // dietType do cadastro: "vegan" | "vegetarian" | "classic" | "pescatarian" | "none" — vegano/vegetariano têm rotina sem carne; outros usam cardápio padrão
   if (data.dietType !== undefined) updateData.dietType = data.dietType ?? null
   if (data.whatWouldLikeToAchieve !== undefined) updateData.whatWouldLikeToAchieve = data.whatWouldLikeToAchieve ?? null
   if (data.referralCode !== undefined) updateData.referralCode = data.referralCode ?? null
@@ -76,9 +77,26 @@ export async function POST(req: Request) {
     create: createData,
   } as any)
 
-  // gera plano automático para o dia após salvar onboarding
+  // Garantir dietType na geração: normalizar "vegetariano"/"vegano" para "vegetarian"/"vegan" (buildMeals usa isso)
+  const rawDiet = data.dietType != null ? String(data.dietType).trim() : (onboarding as any)?.dietType ?? null
+  const normalizedDiet = normalizeDietType(rawDiet)
+  const dietForPlan = normalizedDiet ?? rawDiet
+  const onboardingForPlan = {
+    ...(onboarding as object),
+    dietType: dietForPlan,
+  }
+  console.log("[ONBOARDING] dietType para rotina: raw=", rawDiet, "-> normalized=", normalizedDiet, "-> usado:", dietForPlan)
+
+  // Gera a semana inteira (7 dias) já respeitando dietType (vegano/vegetariano/etc.)
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
   try {
-    await createPlanForDate({ userId, onboarding, date: new Date() })
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(today)
+      d.setDate(today.getDate() + i)
+      await createPlanForDate({ userId, onboarding: onboardingForPlan, date: d })
+    }
+    console.log("[ONBOARDING] Rotina da semana gerada (dietType:", onboardingForPlan.dietType ?? "—", ")")
   } catch (err) {
     console.warn("Falha ao gerar plano automático pós-onboarding", err)
   }
