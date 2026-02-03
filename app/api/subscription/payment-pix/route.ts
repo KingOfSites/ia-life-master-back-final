@@ -124,7 +124,7 @@ export async function POST(req: NextRequest) {
                 status: mapMpPaymentStatus(payment.status),
                 paymentMethod: payment.payment_method_id || null,
                 paymentType: payment.payment_type_id || null,
-            },
+            },   
         });
 
         // Assinatura aguardando pagamento PIX (webhook atualizará: approved → active, cancelled → cancelled, expired → expired)
