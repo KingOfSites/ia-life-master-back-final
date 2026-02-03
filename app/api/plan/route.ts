@@ -98,7 +98,9 @@ export async function POST(req: Request) {
   const onboarding = (onboardingFromDb
     ? { ...(onboardingFromDb as object), dietType: effectiveDietType }
     : (effectiveDietType ? { dietType: effectiveDietType } : null)) as Parameters<typeof createPlanForDate>[0]["onboarding"];
-  console.log(`[PLAN] POST /api/plan - dietType: body=${dietTypeFromBody ?? "—"}, db=${dbDietType ?? "—"}, effective=${effectiveDietType ?? "outros"}`);
+  console.log(`[PLAN] POST /api/plan - dietType: body=${dietTypeFromBody ?? "—"}, db=${dbDietType ?? "—"}, effective=${effectiveDietType ?? "—"}`);
+  if (!effectiveDietType && (rawDiet === "vegetarian" || rawDiet === "vegetariano" || rawDiet === "vegan" || rawDiet === "vegano"))
+    console.warn("[PLAN] dietType não foi reconhecido como vegetariano/vegano. Verifique normalizeDietType. rawDiet:", rawDiet);
 
   // Persistir dietType no onboarding quando vier no body (vegetariano/vegano) para próximas gerações
   if (dietTypeFromBody && (effectiveDietType === "vegetarian" || effectiveDietType === "vegan") && onboardingFromDb) {

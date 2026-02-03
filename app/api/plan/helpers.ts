@@ -520,6 +520,11 @@ const buildMeals = (
   
   console.error(`[PLAN] buildMeals - Selected indices for ${mealsCount} meals: ${indices.join(", ")}, filtered count: ${filtered.length}`);
   console.error(`[PLAN] buildMeals - Meals to return: ${filtered.map(m => m.title).join(", ")}`);
+  const firstDesc = filtered[0]?.description ?? "";
+  if (useVegetarian || useVegan) {
+    if (/frango|carne|peixe|atum|salmão|strogonoff de frango/i.test(firstDesc))
+      console.error(`[PLAN] buildMeals - AVISO: dietType vegetariano/vegano mas descrição contém carne/peixe: ${firstDesc.slice(0, 80)}...`);
+  }
   const ratioSum = filtered.reduce((acc, it) => acc + (it.ratio ?? 0), 0) || 1;
 
   return filtered.map((item) => {
