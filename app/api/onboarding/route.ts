@@ -94,7 +94,7 @@ export async function POST(req: Request) {
     for (let i = 0; i < 7; i++) {
       const d = new Date(today)
       d.setDate(today.getDate() + i)
-      await createPlanForDate({ userId, onboarding: onboardingForPlan, date: d })
+      await createPlanForDate({ userId, onboarding: onboardingForPlan as any, date: d })
     }
     console.log("[ONBOARDING] Rotina da semana gerada (dietType:", onboardingForPlan.dietType ?? "—", ")")
   } catch (err) {

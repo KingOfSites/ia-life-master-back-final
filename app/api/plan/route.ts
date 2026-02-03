@@ -95,9 +95,9 @@ export async function POST(req: Request) {
   const rawDiet = dietTypeFromBody ?? dbDietType;
   // Normalizar para "vegetarian" | "vegan" (buildMeals usa isso; evita "vegetariano" não reconhecido)
   const effectiveDietType = normalizeDietType(rawDiet) ?? rawDiet;
-  const onboarding = onboardingFromDb
+  const onboarding = (onboardingFromDb
     ? { ...(onboardingFromDb as object), dietType: effectiveDietType }
-    : (effectiveDietType ? { dietType: effectiveDietType } : null);
+    : (effectiveDietType ? { dietType: effectiveDietType } : null)) as Parameters<typeof createPlanForDate>[0]["onboarding"];
   console.log(`[PLAN] POST /api/plan - dietType: body=${dietTypeFromBody ?? "—"}, db=${dbDietType ?? "—"}, effective=${effectiveDietType ?? "outros"}`);
 
   // Persistir dietType no onboarding quando vier no body (vegetariano/vegano) para próximas gerações
