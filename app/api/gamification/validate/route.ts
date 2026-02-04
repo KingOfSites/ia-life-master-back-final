@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import jwt from "jsonwebtoken";
+import { getXpForRarity, levelFromExperience } from "@/lib/gamification";
 
 const JWT_SECRET = process.env.JWT_SECRET || "supersecret";
 
@@ -87,6 +88,7 @@ export async function POST(req: NextRequest) {
         );
         const unlockedBadges: string[] = [];
         const newAchievements: any[] = [];
+        let totalXpGainedThisRun = 0;
 
         // Agrupar badges por categoria para sistema de níveis
         const badgesByCategory = new Map<string, typeof allBadges>();
@@ -208,9 +210,11 @@ export async function POST(req: NextRequest) {
                     });
                 }
 
-                // Criar achievement apenas para novos desbloqueios
+                // Criar achievement apenas para novos desbloqueios e acumular XP
                 if (isNewUnlock) {
                     unlockedBadges.push(badge.id);
+                    const pointsXp = getXpForRarity(badge.rarity);
+                    totalXpGainedThisRun += pointsXp;
 
                     const achievement = await prisma.achievement.create({
                         data: {
@@ -220,31 +224,24 @@ export async function POST(req: NextRequest) {
                             description: badge.description,
                             icon: badge.icon,
                             value: progress,
-                            points: badge.rarity === "legendary" ? 100 : badge.rarity === "epic" ? 50 : badge.rarity === "rare" ? 25 : 10,
+                            points: pointsXp,
                         },
                     });
-
                     newAchievements.push(achievement);
-
-                    // Adicionar experiência
-                    const expGain = achievement.points;
-                    const newExp = experience + expGain;
-                    const expForNextLevel = level * 100;
-                    const updatedUserLevel = newExp >= expForNextLevel ? level + 1 : level;
-
-                    const updateData: any = {};
-                    if ((user as any).experience !== undefined) updateData.experience = newExp;
-                    if ((user as any).level !== undefined) updateData.level = updatedUserLevel;
-                    if ((user as any).bestStreak !== undefined) updateData.bestStreak = Math.max(bestStreak, currentStreak);
-
-                    if (Object.keys(updateData).length > 0) {
-                        await prisma.user.update({
-                            where: { id: userId },
-                            data: updateData,
-                        });
-                    }
                 }
             }
+        }
+
+        // Atualizar experiência e nível do usuário (uma vez, com todo o XP ganho nesta validação)
+        if (totalXpGainedThisRun > 0) {
+            const newExp = experience + totalXpGainedThisRun;
+            const updatedUserLevel = levelFromExperience(newExp);
+            const updateData: any = { experience: newExp, level: updatedUserLevel };
+            if ((user as any).bestStreak !== undefined) updateData.bestStreak = Math.max(bestStreak, currentStreak);
+            await prisma.user.update({
+                where: { id: userId },
+                data: updateData,
+            });
         }
 
         return NextResponse.json({

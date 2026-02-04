@@ -12,14 +12,14 @@ function generateCode(): string {
 // Configurar transporter de email (usando Gmail como exemplo)
 // Em produção, use um serviço profissional como SendGrid, AWS SES, etc.
 function getEmailTransporter() {
-  // Verifica se as credenciais de email estão configuradas
+  // Verifica se as credenciais de email estão configuradas (EMAIL_PASS ou EMAIL_PASSWORD)
   const emailUser = process.env.EMAIL_USER;
-  const emailPass = process.env.EMAIL_PASS;
-  const emailHost = process.env.EMAIL_HOST || 'smtp.gmail.com';
-  const emailPort = parseInt(process.env.EMAIL_PORT || '587');
+  const emailPass = process.env.EMAIL_PASS || process.env.EMAIL_PASSWORD;
+  const emailHost = process.env.EMAIL_HOST || "smtp.gmail.com";
+  const emailPort = parseInt(process.env.EMAIL_PORT || "587", 10);
 
   if (!emailUser || !emailPass) {
-    console.warn('Email credentials not configured. Emails will not be sent.');
+    console.warn("Configure EMAIL_USER e EMAIL_PASS (ou EMAIL_PASSWORD) no .env para enviar e-mails de recuperação de senha.");
     return null;
   }
 
@@ -83,7 +83,7 @@ export async function POST(req: Request) {
         // Se não houver configuração de email, apenas logar o código (desenvolvimento)
         console.log(`🔑 CÓDIGO DE RECUPERAÇÃO PARA ${email}: ${code}`);
         console.log(`⏰ Expira em: ${expiresAt.toLocaleString("pt-BR")}`);
-        console.log("⚠️ Configure EMAIL_USER e EMAIL_PASSWORD para enviar emails reais");
+        console.log("⚠️ Configure EMAIL_USER e EMAIL_PASS no .env para enviar e-mails reais de recuperação.");
         
         return NextResponse.json({
           ok: true,

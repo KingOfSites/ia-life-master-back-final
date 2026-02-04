@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import jwt from "jsonwebtoken";
+import { levelFromExperience, xpTotalForLevel } from "@/lib/gamification";
 
 const JWT_SECRET = process.env.JWT_SECRET || "supersecret";
 
@@ -33,13 +34,16 @@ export async function GET(req: NextRequest) {
             return NextResponse.json({ error: "Usuário não encontrado" }, { status: 404 });
         }
 
-        // Usar valores padrão se os campos não existirem ainda
         const currentStreak = (user as any).currentStreak || 0;
         const bestStreak = (user as any).bestStreak || 0;
         const totalMeals = (user as any).totalMeals || 0;
         const totalCalories = (user as any).totalCalories || 0;
-        const level = (user as any).level || 1;
-        const experience = (user as any).experience || 0;
+        const experience = Math.max(0, (user as any).experience ?? 0);
+        const level = levelFromExperience(experience);
+        const nextLevelTotalXp = xpTotalForLevel(level + 1);
+        // Para a barra de progresso: "X / Y pontos" onde Y = total de XP para atingir o próximo nível
+        const nextLevelPoints = nextLevelTotalXp;
+        const progressInLevel = nextLevelTotalXp > 0 ? Math.max(0, Math.min(1, experience / nextLevelTotalXp)) : 0;
 
         // Calcular dias ativos
         const daysSinceJoin = Math.floor(
@@ -72,6 +76,8 @@ export async function GET(req: NextRequest) {
             totalCalories,
             level,
             experience,
+            nextLevelPoints,
+            progressInLevel,
             daysSinceJoin,
             unlockedBadges,
             totalAchievements,
