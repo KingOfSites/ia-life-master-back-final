@@ -48,6 +48,7 @@ export async function GET(req: NextRequest) {
                 date: dateStr,
                 waterMl: row?.waterMl ?? 0,
                 sleepHours: row?.sleepHours ?? 0,
+                steps: row?.steps ?? 0,
             });
         }
 
@@ -68,6 +69,7 @@ export async function GET(req: NextRequest) {
                 date: r.date.toISOString().slice(0, 10),
                 waterMl: r.waterMl,
                 sleepHours: r.sleepHours,
+                steps: r.steps ?? 0,
             }));
             return NextResponse.json({ metrics: list });
         }
@@ -82,7 +84,7 @@ export async function GET(req: NextRequest) {
     }
 }
 
-// POST - Salvar/atualizar água e sono do dia. Body: { date: "YYYY-MM-DD", waterMl?: number, sleepHours?: number }
+// POST - Salvar/atualizar água, sono e passos do dia. Body: { date: "YYYY-MM-DD", waterMl?: number, sleepHours?: number, steps?: number }
 export async function POST(req: NextRequest) {
     try {
         const userId = getUserIdFromToken(req);
@@ -103,19 +105,25 @@ export async function POST(req: NextRequest) {
 
         const waterMl = body.waterMl != null ? Math.max(0, Math.round(Number(body.waterMl))) : undefined;
         const sleepHours = body.sleepHours != null ? Math.max(0, Number(body.sleepHours)) : undefined;
+        const steps = body.steps != null ? Math.max(0, Math.round(Number(body.steps))) : undefined;
 
         const existing = await prisma.dailyMetric.findUnique({
             where: { userId_date: { userId, date } },
         });
 
-        const data: { waterMl?: number; sleepHours?: number } = {};
+        const data: { waterMl?: number; sleepHours?: number; steps?: number } = {};
         if (waterMl !== undefined) data.waterMl = waterMl;
         if (sleepHours !== undefined) data.sleepHours = sleepHours;
+        if (steps !== undefined) data.steps = steps;
 
         if (Object.keys(data).length === 0) {
-            return NextResponse.json(
-                { date: dateStr, waterMl: existing?.waterMl ?? 0, sleepHours: existing?.sleepHours ?? 0 }
-            );
+            const row = existing;
+            return NextResponse.json({
+                date: dateStr,
+                waterMl: row?.waterMl ?? 0,
+                sleepHours: row?.sleepHours ?? 0,
+                steps: row?.steps ?? 0,
+            });
         }
 
         let row;
@@ -125,6 +133,7 @@ export async function POST(req: NextRequest) {
                 data: {
                     ...(waterMl !== undefined && { waterMl }),
                     ...(sleepHours !== undefined && { sleepHours }),
+                    ...(steps !== undefined && { steps }),
                 },
             });
         } else {
@@ -134,6 +143,7 @@ export async function POST(req: NextRequest) {
                     date,
                     waterMl: waterMl ?? 0,
                     sleepHours: sleepHours ?? 0,
+                    steps: steps ?? 0,
                 },
             });
         }
@@ -142,6 +152,7 @@ export async function POST(req: NextRequest) {
             date: dateStr,
             waterMl: row.waterMl,
             sleepHours: row.sleepHours,
+            steps: row.steps ?? 0,
         });
     } catch (error: any) {
         console.error("[DAILY-METRICS] POST error:", error);

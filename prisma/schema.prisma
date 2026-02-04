@@ -46,6 +46,7 @@ model DailyMetric {
   date       DateTime @db.Date
   waterMl    Int      @default(0)
   sleepHours Float    @default(0)
+  steps      Int      @default(0)
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
