@@ -21,13 +21,11 @@ function getUserIdFromToken(req: NextRequest): string | null {
 // Função para garantir que as badges existam no banco
 async function ensureBadgesExist() {
     const existingBadgesCount = await prisma.badge.count();
-    
-    // Se já existem badges, não precisa criar
-    if (existingBadgesCount > 0) {
-        return;
-    }
+    const stepsBadgeExists = await prisma.badge.findFirst({ where: { category: "steps" } });
+    const needUpsert = existingBadgesCount === 0 || !stepsBadgeExists;
+    if (!needUpsert) return;
 
-    console.log("🌱 Criando badges automaticamente...");
+    console.log("🌱 Criando/atualizando badges (incluindo passos, água, sono)...");
 
     const badgeGroups = [
         {
@@ -149,6 +147,45 @@ async function ensureBadgesExist() {
                 { level: 1, requirement: 3, description: "Registre refeições por 3 dias seguidos", rarity: "common" },
                 { level: 2, requirement: 10, description: "Registre refeições por 10 dias seguidos", rarity: "rare" },
                 { level: 3, requirement: 21, description: "Registre refeições por 21 dias seguidos", rarity: "epic" },
+            ],
+        },
+        {
+            baseName: "Passos",
+            category: "steps",
+            icon: "walk",
+            color: "#10B981",
+            levels: [
+                { level: 1, requirement: 1000, description: "Registre 1.000 passos no total", rarity: "common" },
+                { level: 2, requirement: 10000, description: "Registre 10.000 passos no total", rarity: "common" },
+                { level: 3, requirement: 50000, description: "Registre 50.000 passos no total", rarity: "rare" },
+                { level: 4, requirement: 100000, description: "Registre 100.000 passos no total", rarity: "epic" },
+                { level: 5, requirement: 500000, description: "Registre 500.000 passos no total", rarity: "legendary" },
+            ],
+        },
+        {
+            baseName: "Água",
+            category: "water",
+            icon: "water",
+            color: "#3B82F6",
+            levels: [
+                { level: 1, requirement: 1000, description: "Registre 1.000 ml de água no total", rarity: "common" },
+                { level: 2, requirement: 10000, description: "Registre 10.000 ml de água no total", rarity: "common" },
+                { level: 3, requirement: 25000, description: "Registre 25.000 ml de água no total", rarity: "rare" },
+                { level: 4, requirement: 50000, description: "Registre 50.000 ml de água no total", rarity: "epic" },
+                { level: 5, requirement: 100000, description: "Registre 100.000 ml de água no total", rarity: "legendary" },
+            ],
+        },
+        {
+            baseName: "Sono",
+            category: "sleep",
+            icon: "moon",
+            color: "#8B5CF6",
+            levels: [
+                { level: 1, requirement: 8, description: "Registre 8 horas de sono no total", rarity: "common" },
+                { level: 2, requirement: 40, description: "Registre 40 horas de sono no total", rarity: "common" },
+                { level: 3, requirement: 100, description: "Registre 100 horas de sono no total", rarity: "rare" },
+                { level: 4, requirement: 200, description: "Registre 200 horas de sono no total", rarity: "epic" },
+                { level: 5, requirement: 500, description: "Registre 500 horas de sono no total", rarity: "legendary" },
             ],
         },
     ];

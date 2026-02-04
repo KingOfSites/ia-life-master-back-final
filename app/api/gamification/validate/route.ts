@@ -50,6 +50,14 @@ export async function POST(req: NextRequest) {
             },
         });
 
+        // Totais de passos, água e sono (DailyMetric)
+        const dailyMetrics = await prisma.dailyMetric.findMany({
+            where: { userId },
+        });
+        const totalSteps = dailyMetrics.reduce((sum, m) => sum + ((m as { steps?: number }).steps ?? 0), 0);
+        const totalWaterMl = dailyMetrics.reduce((sum, m) => sum + m.waterMl, 0);
+        const totalSleepHours = dailyMetrics.reduce((sum, m) => sum + m.sleepHours, 0);
+
         // Calcular macros totais das refeições
         const meals = await prisma.meal.findMany({
             where: { userId },
@@ -161,6 +169,12 @@ export async function POST(req: NextRequest) {
                     }
                     return maxConsecutive;
                 }
+                case "steps":
+                    return totalSteps;
+                case "water":
+                    return totalWaterMl;
+                case "sleep":
+                    return Math.round(totalSleepHours * 10) / 10;
                 default:
                     return 0;
             }
