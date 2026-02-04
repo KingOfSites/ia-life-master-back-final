@@ -55,3 +55,14 @@ export function getXpForRarity(rarity: string): number {
   const r = (rarity || "common").toLowerCase();
   return XP_PER_RARITY[r] ?? XP_PER_RARITY.common;
 }
+
+/**
+ * Retorna o XP que um badge concede ao ser desbloqueado.
+ * Usa xpReward do badge se estiver definido, senão usa o valor da raridade.
+ */
+export function getXpForBadge(badge: { xpReward?: number | null; rarity: string }): number {
+  if (typeof badge.xpReward === "number" && badge.xpReward >= 0) {
+    return badge.xpReward;
+  }
+  return getXpForRarity(badge.rarity);
+}

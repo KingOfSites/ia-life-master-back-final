@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import jwt from "jsonwebtoken";
-import { getXpForRarity, levelFromExperience } from "@/lib/gamification";
+import { getXpForBadge, levelFromExperience } from "@/lib/gamification";
 
 const JWT_SECRET = process.env.JWT_SECRET || "supersecret";
 
@@ -213,7 +213,7 @@ export async function POST(req: NextRequest) {
                 // Criar achievement apenas para novos desbloqueios e acumular XP
                 if (isNewUnlock) {
                     unlockedBadges.push(badge.id);
-                    const pointsXp = getXpForRarity(badge.rarity);
+                    const pointsXp = getXpForBadge(badge);
                     totalXpGainedThisRun += pointsXp;
 
                     const achievement = await prisma.achievement.create({

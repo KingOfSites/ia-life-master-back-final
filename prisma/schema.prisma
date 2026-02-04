@@ -335,6 +335,7 @@ model Badge {
   category    String // "streak", "meals", "calories", "consistency", "milestone"
   requirement Int // Valor necessário para desbloquear
   rarity      String      @default("common") // "common", "rare", "epic", "legendary"
+  xpReward    Int?        // XP ao desbloquear (null = usa valor da raridade)
   level       Int         @default(1) // Nível da conquista (1, 2, 3, etc)
   maxLevel    Int         @default(1) // Nível máximo desta conquista
   createdAt   DateTime    @default(now())

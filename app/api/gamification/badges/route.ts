@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import jwt from "jsonwebtoken";
+import { getXpForBadge } from "@/lib/gamification";
 
 const JWT_SECRET = process.env.JWT_SECRET || "supersecret";
 
@@ -227,6 +228,7 @@ export async function GET(req: NextRequest) {
                 category: badge.category,
                 requirement: badge.requirement,
                 rarity: badge.rarity,
+                xpOnUnlock: getXpForBadge(badge),
                 level: badge.level,
                 maxLevel: badge.maxLevel,
                 progress: userBadge?.progress || 0,
